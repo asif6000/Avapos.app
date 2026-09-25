@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { ListSkeleton } from '@/components/Skeleton';
 import { deviceStateBadge } from '@/components/StatusBadge';
@@ -10,6 +11,7 @@ import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useDeviceStatus, useSyncDevice } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { deviceStateLabel, formatCurrency, formatDate } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 /**
  * Customer-facing restriction status.
@@ -21,6 +23,7 @@ import { deviceStateLabel, formatCurrency, formatDate } from '@/utils/format';
 export default function DeviceRestrictionScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const { data, isLoading, refetch } = useDeviceStatus();
   const sync = useSyncDevice();
@@ -33,7 +36,7 @@ export default function DeviceRestrictionScreen() {
   return (
     <Screen>
       <AppHeader title={t('device.restrictedTitle')} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         {isLoading ? (
           <ListSkeleton count={1} />
         ) : (
@@ -60,30 +63,20 @@ export default function DeviceRestrictionScreen() {
               ) : null}
             </SectionCard>
 
-            <Button
-              mode="contained"
+            <AppButton
               onPress={() => router.push('/payments/create')}
-              contentStyle={styles.buttonContent}
               testID="restriction-pay-now"
-            >
-              {t('dashboard.payNow')}
-            </Button>
-            <Button
-              mode="outlined"
+             label={t('dashboard.payNow')} />
+            <AppButton
+              variant="outline"
               onPress={() => router.push('/(tabs)/support')}
-              contentStyle={styles.buttonContent}
-            >
-              {t('device.contactSupport')}
-            </Button>
-            <Button
-              mode="text"
+             label={t('device.contactSupport')} />
+            <AppButton
+              variant="text"
               loading={sync.isPending}
               onPress={() => void refresh()}
-              contentStyle={styles.buttonContent}
               testID="restriction-refresh"
-            >
-              {t('device.refreshStatus')}
-            </Button>
+             label={t('device.refreshStatus')} />
           </>
         )}
       </ScrollView>
@@ -92,7 +85,7 @@ export default function DeviceRestrictionScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   buttonContent: { height: 52 },
 });

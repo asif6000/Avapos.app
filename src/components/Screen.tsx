@@ -5,6 +5,7 @@ import { useTheme } from 'react-native-paper';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OfflineBanner } from './OfflineBanner';
+import { CONTENT_MAX_WIDTH, spacing } from '@/theme/layout';
 
 interface ScreenProps {
   children: ReactNode;
@@ -40,7 +41,7 @@ export function Screen({
       <View style={[styles.flex, { backgroundColor: theme.colors.background }, style]}>
         {showOfflineBanner ? <OfflineBanner /> : null}
         <ScrollView
-          contentContainerStyle={[styles.content, padding, contentContainerStyle]}
+          contentContainerStyle={[styles.content, styles.bottomRoom, padding, contentContainerStyle]}
           keyboardShouldPersistTaps="handled"
           refreshControl={
             onRefresh ? (
@@ -76,5 +77,8 @@ export function Screen({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { flexGrow: 1 },
+  // `flexGrow` so a short screen can still pull its footer to the bottom, and a
+  // width cap so a tablet does not stretch one column of text to the far edge.
+  content: { flexGrow: 1, width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center' },
+  bottomRoom: { paddingBottom: spacing.xxl },
 });

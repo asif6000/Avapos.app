@@ -136,6 +136,13 @@ export const bn: Localized<TranslationSchema> = {
     contractStatus: 'চুক্তির অবস্থা',
     timeline: 'সময়রেখা',
     allPaid: 'সব কিস্তি পরিশোধিত। ফোন উপভোগ করুন!',
+    status: {
+      PAID: 'পরিশোধিত',
+      DUE: 'বকেয়া',
+      OVERDUE: 'বিলম্বিত',
+      UPCOMING: 'আসন্ন',
+      PARTIAL: 'আংশিক পরিশোধিত',
+    },
   },
   payments: {
     title: 'পেমেন্ট',

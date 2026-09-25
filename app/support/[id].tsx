@@ -11,6 +11,7 @@ import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useTicket } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { formatDateTime, ticketStatusLabel } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import type { TicketStatus } from '@/types/domain';
 
 const TICKET_TONES: Record<TicketStatus, BadgeTone> = {
@@ -21,6 +22,7 @@ const TICKET_TONES: Record<TicketStatus, BadgeTone> = {
 };
 
 export default function TicketDetailScreen() {
+  const { gutter } = useLayout();
   const { t, language } = useTranslation();
   const theme = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -37,7 +39,7 @@ export default function TicketDetailScreen() {
       ) : error ? (
         <ErrorState message={error.message} onRetry={() => void refetch()} />
       ) : data ? (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
           <SectionCard>
             <View style={styles.headerRow}>
               <Text variant="titleMedium" style={{ flex: 1, color: theme.colors.onSurface, fontWeight: '700' }}>
@@ -82,6 +84,6 @@ export default function TicketDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
 });

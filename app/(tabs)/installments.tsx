@@ -1,19 +1,21 @@
 import { useRouter } from 'expo-router';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
 import { ApiError } from '@/api/errors';
 import { AmountProgress } from '@/components/AmountProgress';
+import { ListRow } from '@/components/ui/ListRow';
 import { AppHeader } from '@/components/AppHeader';
 import { ListSkeleton } from '@/components/Skeleton';
 import { StatusBadge, type BadgeTone } from '@/components/StatusBadge';
-import { ErrorState } from '@/components/StateViews';
+import { EmptyState, ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useInstallmentPlan } from '@/hooks/queries';
 import { useInstallmentSource } from '@/hooks/useDataSources';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
-import { formatCurrency, formatDate, percentOf } from '@/utils/format';
+import { CONTENT_MAX_WIDTH, spacing, useLayout } from '@/theme/layout';
+import { formatCurrency, formatDate, installmentStatusLabel, percentOf } from '@/utils/format';
 import type { InstallmentStatus } from '@/types/domain';
 
 const STATUS_TONES: Record<InstallmentStatus, BadgeTone> = {
@@ -37,6 +39,8 @@ export default function InstallmentsScreen() {
   const loading = planQuery.isLoading || schedule.isLoading;
   const error = (planQuery.error ?? schedule.error) as ApiError | null;
 
+  const { gutter } = useLayout();
+
   const refresh = () => {
     void planQuery.refetch();
     schedule.refetch();
@@ -51,14 +55,14 @@ export default function InstallmentsScreen() {
       />
 
       {loading ? (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
           <ListSkeleton count={4} />
         </ScrollView>
       ) : error && error.kind !== 'network' ? (
         <ErrorState message={error.message} onRetry={refresh} onSignOut={() => void signOut()} />
       ) : (
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}
           refreshControl={
             <RefreshControl
               refreshing={planQuery.isRefetching}
@@ -103,42 +107,33 @@ export default function InstallmentsScreen() {
           </Text>
 
           {installments.length === 0 ? (
-            <SectionCard>
-              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                {t('dashboard.noInstallment')}
-              </Text>
-            </SectionCard>
+            <EmptyState
+              icon="calendar-blank-outline"
+              title={t('installments.title')}
+              body={t('dashboard.noInstallment')}
+            />
           ) : (
-            installments.map((installment) => (
-              <Pressable
-                key={installment.id}
-                onPress={() => router.push({ pathname: '/installments/[id]', params: { id: installment.id } })}
-                accessibilityRole="button"
-                testID={`installment-${installment.number}`}
-              >
-                <SectionCard>
-                  <View style={styles.itemHeader}>
-                    <Text variant="titleMedium" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
-                      {t('installments.title')} {installment.number}
-                    </Text>
-                    <StatusBadge
-                      label={installment.status}
-                      tone={STATUS_TONES[installment.status] ?? 'neutral'}
-                    />
-                  </View>
-                  <InfoRow
-                    label={t('payments.amount')}
-                    value={formatCurrency(installment.amount)}
-                    tone="strong"
+            <SectionCard style={styles.list}>
+              {installments.map((installment, index) => (
+                <View key={installment.id} style={index > 0 ? styles.listDivider : undefined}>
+                  <ListRow
+                    title={`${t('installments.title')} ${installment.number}`}
+                    subtitle={formatDate(installment.dueDate, language)}
+                    trailing={formatCurrency(installment.amount)}
+                    trailingNode={
+                      <StatusBadge
+                        label={installmentStatusLabel(installment.status, t)}
+                        tone={STATUS_TONES[installment.status] ?? 'neutral'}
+                      />
+                    }
+                    icon={installment.status === 'PAID' ? 'check-circle-outline' : 'calendar-clock'}
+                    onPress={() =>
+                      router.push({ pathname: '/installments/[id]', params: { id: installment.id } })
+                    }
                   />
-                  <InfoRow
-                    label={t('installments.nextDue')}
-                    value={formatDate(installment.dueDate, language)}
-                    tone="muted"
-                  />
-                </SectionCard>
-              </Pressable>
-            ))
+                </View>
+              ))}
+            </SectionCard>
           )}
         </ScrollView>
       )}
@@ -148,6 +143,15 @@ export default function InstallmentsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
-  itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  content: {
+    gap: spacing.md,
+    paddingBottom: spacing.xxl,
+    width: '100%',
+    maxWidth: CONTENT_MAX_WIDTH,
+    alignSelf: 'center',
+  },
+  // One card holding the whole schedule: a card per installment made the list
+  // look like a page of unrelated boxes instead of a timeline.
+  list: { padding: 0, gap: 0, overflow: 'hidden' },
+  listDivider: { borderTopColor: undefined },
 });

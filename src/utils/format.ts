@@ -130,14 +130,7 @@ export function managementLabel(status: ManagementStatus, t: Translator): string
 }
 
 export function installmentStatusLabel(status: InstallmentStatus, t: Translator): string {
-  const map: Record<InstallmentStatus, string> = {
-    PAID: t('installments.paid'),
-    DUE: t('dashboard.dueDate'),
-    OVERDUE: t('states.PAYMENT_DUE'),
-    UPCOMING: t('installments.remainingCount'),
-    PARTIAL: t('installments.paid'),
-  };
-  return map[status];
+  return t(`installments.status.${status}`);
 }
 
 export function paymentStatusLabel(status: PaymentStatus, t: Translator): string {

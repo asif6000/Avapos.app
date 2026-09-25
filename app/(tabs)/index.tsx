@@ -3,6 +3,8 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-n
 import { Text, useTheme } from 'react-native-paper';
 
 import { AmountProgress } from '@/components/AmountProgress';
+import { AppButton } from '@/components/ui/AppButton';
+import { StatTile } from '@/components/ui/StatTile';
 import { AppIcon } from '@/components/AppIcon';
 import { AppHeader } from '@/components/AppHeader';
 import { OfflineBanner } from '@/components/OfflineBanner';
@@ -14,6 +16,7 @@ import { useDashboard } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
 import { useNetworkStore } from '@/store/networkStore';
+import { CONTENT_MAX_WIDTH, radius, spacing, useLayout } from '@/theme/layout';
 import { deviceStateLabel, formatCurrency, formatDate, percentOf } from '@/utils/format';
 
 export default function DashboardScreen() {
@@ -24,6 +27,7 @@ export default function DashboardScreen() {
   const online = useNetworkStore((state) => state.online);
   const { data, isLoading, isRefetching, error, refetch } = useDashboard();
 
+  const { gutter } = useLayout();
   const profile = data?.customer;
   const device = data?.device;
   const plan = data?.plan;
@@ -41,7 +45,7 @@ export default function DashboardScreen() {
             onPress: () => router.push('/notifications'),
           }}
         />
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
           <DashboardSkeleton />
         </ScrollView>
       </View>
@@ -83,7 +87,7 @@ export default function DashboardScreen() {
       />
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}
         refreshControl={
           <RefreshControl
             refreshing={isRefetching}
@@ -95,19 +99,26 @@ export default function DashboardScreen() {
       >
         {!online ? <OfflineBanner /> : null}
 
-        <Text variant="titleMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+        <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant }}>
           {t('dashboard.greeting', { name: profile?.fullName ?? '' })}
         </Text>
 
-        <SectionCard style={styles.heroCard}>
+        <SectionCard style={styles.heroCard} tone="primary">
           <View style={styles.heroHeader}>
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+            <View style={styles.heroTitle}>
+              <Text
+                variant="labelMedium"
+                numberOfLines={1}
+                style={{ color: theme.colors.onPrimaryContainer }}
+              >
                 {device?.name ?? t('dashboard.noDevice')}
               </Text>
               <Text
-                variant="headlineMedium"
-                style={{ color: theme.colors.onSurface, fontWeight: '800' }}
+                variant="displaySmall"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={{ color: theme.colors.onPrimaryContainer, fontWeight: '800', letterSpacing: -1 }}
                 testID="dashboard-remaining"
               >
                 {formatCurrency(plan?.remainingAmount ?? 0, { compact: true })}
@@ -119,28 +130,23 @@ export default function DashboardScreen() {
           <AmountProgress paid={plan?.paidAmount ?? 0} total={plan?.totalPrice ?? 0} />
 
           <View style={styles.metricRow}>
-            <View style={styles.metric}>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {t('dashboard.nextInstallment')}
-              </Text>
-              <Text variant="titleMedium" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
-                {formatCurrency(next?.amount ?? plan?.installmentAmount ?? 0)}
-              </Text>
-            </View>
-            <View style={styles.metric}>
-              <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                {t('dashboard.dueDate')}
-              </Text>
-              <Text variant="titleMedium" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
-                {next?.dueDate ? formatDate(next.dueDate, language) : '—'}
-              </Text>
-            </View>
+            <StatTile
+              label={t('dashboard.nextInstallment')}
+              value={formatCurrency(next?.amount ?? plan?.installmentAmount ?? 0)}
+            />
+            <StatTile
+              label={t('dashboard.dueDate')}
+              value={next?.dueDate ? formatDate(next.dueDate, language) : '—'}
+            />
           </View>
 
           <View style={styles.primaryActions}>
-            <QuickAction
+            <AppButton
+              size="lg"
+              block
               icon="cash-plus"
               label={t('dashboard.payNow')}
+              testID="dashboard-pay"
               onPress={() =>
                 router.push(
                   next
@@ -148,9 +154,10 @@ export default function DashboardScreen() {
                     : '/payments',
                 )
               }
-              primary
             />
-            <QuickAction
+            <AppButton
+              variant="outline"
+              block
               icon="cellphone"
               label={t('dashboard.myDevice')}
               onPress={() => router.push('/(tabs)/device')}
@@ -256,22 +263,31 @@ function QuickAction({
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16, gap: 16, paddingBottom: 40 },
-  heroCard: { gap: 16 },
-  heroHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
-  metricRow: { flexDirection: 'row', gap: 12 },
-  metric: { flex: 1, gap: 2 },
-  primaryActions: { gap: 10 },
-  secondaryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  // Width-capped and centred by `useLayout`'s gutter below, so a tablet or a
+  // landscape phone does not stretch one column of text across the screen.
+  content: {
+    gap: spacing.lg,
+    paddingBottom: spacing.xxl,
+    width: '100%',
+    maxWidth: CONTENT_MAX_WIDTH,
+    alignSelf: 'center',
+  },
+  heroCard: { gap: spacing.lg },
+  heroHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
+  heroTitle: { flex: 1, gap: 2, minWidth: 0 },
+  metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
+  primaryActions: { gap: spacing.sm },
+  secondaryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   quickAction: {
+    flexGrow: 1,
+    flexBasis: 140,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 999,
+    gap: spacing.sm,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
     minHeight: 48,
   },
 });

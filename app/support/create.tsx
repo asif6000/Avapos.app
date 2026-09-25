@@ -3,15 +3,19 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, HelperText, Menu, Text, TextInput, useTheme } from 'react-native-paper';
+import { Menu, Text, useTheme } from 'react-native-paper';
+
+import { Field } from '@/components/ui/Field';
 import { z } from 'zod';
 
 import { ApiError } from '@/api/errors';
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { useCreateTicket } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import type { TicketCategory } from '@/types/domain';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 const schema = z.object({
   subject: z.string().min(4, 'required').max(120, 'required'),
@@ -26,6 +30,7 @@ const CATEGORIES: TicketCategory[] = ['PAYMENT', 'DEVICE', 'INSTALLMENT', 'ACCOU
 export default function CreateTicketScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const createTicket = useCreateTicket();
   const [menuVisible, setMenuVisible] = useState(false);
@@ -61,25 +66,20 @@ export default function CreateTicketScreen() {
     <Screen>
       <AppHeader title={t('support.createTicket')} />
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]} keyboardShouldPersistTaps="handled">
         <Controller
           control={control}
           name="subject"
           render={({ field: { onChange, onBlur, value } }) => (
-            <View>
-              <TextInput
-                mode="outlined"
-                label={t('support.subject')}
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                error={Boolean(errors.subject)}
-                testID="ticket-subject"
-              />
-              <HelperText type="error" visible={Boolean(errors.subject)}>
-                {t('common.required')}
-              </HelperText>
-            </View>
+            <Field
+              label={t('support.subject')}
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              error={Boolean(errors.subject)}
+              helper={errors.subject ? t('common.required') : null}
+              testID="ticket-subject"
+            />
           )}
         />
 
@@ -91,9 +91,7 @@ export default function CreateTicketScreen() {
             visible={menuVisible}
             onDismiss={() => setMenuVisible(false)}
             anchor={
-              <Button mode="outlined" onPress={() => setMenuVisible(true)} testID="ticket-category">
-                {category}
-              </Button>
+              <AppButton variant="outline" onPress={() => setMenuVisible(true)} testID="ticket-category" label={category} />
             }
           >
             {CATEGORIES.map((option) => (
@@ -113,22 +111,17 @@ export default function CreateTicketScreen() {
           control={control}
           name="message"
           render={({ field: { onChange, onBlur, value } }) => (
-            <View>
-              <TextInput
-                mode="outlined"
-                label={t('support.message')}
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                multiline
-                numberOfLines={6}
-                error={Boolean(errors.message)}
-                testID="ticket-message"
-              />
-              <HelperText type="error" visible={Boolean(errors.message)}>
-                {t('common.required')}
-              </HelperText>
-            </View>
+            <Field
+              label={t('support.message')}
+              value={value}
+              onChangeText={onChange}
+              onBlur={onBlur}
+              multiline
+              numberOfLines={6}
+              error={Boolean(errors.message)}
+              helper={errors.message ? t('common.required') : null}
+              testID="ticket-message"
+            />
           )}
         />
 
@@ -138,22 +131,18 @@ export default function CreateTicketScreen() {
           </Text>
         ) : null}
 
-        <Button
-          mode="contained"
+        <AppButton
           onPress={onSubmit}
           loading={createTicket.isPending}
           disabled={createTicket.isPending}
-          contentStyle={styles.buttonContent}
           testID="ticket-submit"
-        >
-          {t('common.submit')}
-        </Button>
+         label={t('common.submit')} />
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 48 },
   buttonContent: { height: 52 },
 });

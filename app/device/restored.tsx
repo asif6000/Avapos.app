@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { useIsFocused } from 'expo-router';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { ListSkeleton } from '@/components/Skeleton';
 import { deviceStateBadge } from '@/components/StatusBadge';
@@ -11,6 +12,7 @@ import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useDeviceStatus } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { deviceStateLabel, formatDateTime } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { RESTRICTED_STATES } from '@/types/domain';
 
 /**
@@ -19,6 +21,7 @@ import { RESTRICTED_STATES } from '@/types/domain';
  * here from a notification cannot fabricate an unlocked device.
  */
 export default function DeviceRestoredScreen() {
+  const { gutter } = useLayout();
   const { t, language } = useTranslation();
   const theme = useTheme();
   const isFocused = useIsFocused();
@@ -37,7 +40,7 @@ export default function DeviceRestoredScreen() {
   return (
     <Screen>
       <AppHeader title={t('device.restoredTitle')} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         {isLoading && !data ? (
           <ListSkeleton count={1} />
         ) : (
@@ -77,14 +80,10 @@ export default function DeviceRestoredScreen() {
               </SectionCard>
             ) : null}
 
-            <Button
-              mode="contained"
+            <AppButton
               onPress={() => void refetch()}
-              contentStyle={styles.buttonContent}
               testID="restored-refresh"
-            >
-              {t('common.refresh')}
-            </Button>
+             label={t('common.refresh')} />
           </>
         )}
       </ScrollView>
@@ -93,7 +92,7 @@ export default function DeviceRestoredScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   buttonContent: { height: 52 },
 });

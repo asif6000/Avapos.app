@@ -1,14 +1,17 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Checkbox, ProgressBar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Checkbox, ProgressBar, Text, useTheme } from 'react-native-paper';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
+import { Field } from '@/components/ui/Field';
 import { useAcceptAgreement } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { DEVICE_MANAGEMENT_AGREEMENT_VERSION } from '@/config/agreement';
 import { deviceManagementService } from '@/services/deviceManagement';
 import { useNetworkStore } from '@/store/networkStore';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 /**
  * Enrollment is deliberately explicit. Nothing is enrolled silently: the
@@ -17,6 +20,7 @@ import { useNetworkStore } from '@/store/networkStore';
  * versioned agreement. The server records who accepted which version and when.
  */
 export default function EnrollmentScreen() {
+  const { gutter } = useLayout();
   const { t } = useTranslation();
   const theme = useTheme();
   const online = useNetworkStore((state) => state.online);
@@ -74,7 +78,7 @@ export default function EnrollmentScreen() {
     <Screen>
       <AppHeader title={t('enrollment.title')} />
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]} keyboardShouldPersistTaps="handled">
         <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant }}>
           {t('enrollment.step', { current: step + 1, total: totalSteps })}
         </Text>
@@ -105,8 +109,7 @@ export default function EnrollmentScreen() {
         ) : null}
 
         {isLastStep && consent ? (
-          <TextInput
-            mode="outlined"
+          <Field
             label={t('auth.fullName')}
             placeholder={t('enrollment.acceptName')}
             value={signature}
@@ -140,31 +143,21 @@ export default function EnrollmentScreen() {
         ) : (
           <View style={styles.actions}>
             {isLastStep ? (
-              <Button
-                mode="contained"
+              <AppButton
                 disabled={!consent || submitting || !online}
                 loading={submitting}
                 onPress={() => void onFinish()}
-                contentStyle={styles.buttonContent}
                 testID="enrollment-submit"
-              >
-                {t('enrollment.acceptCta')}
-              </Button>
+               label={t('enrollment.acceptCta')} />
             ) : (
-              <Button
-                mode="contained"
+              <AppButton
                 onPress={() => setStep((value) => Math.min(steps.length, value + 1))}
-                contentStyle={styles.buttonContent}
                 testID="enrollment-next"
-              >
-                {t('common.next')}
-              </Button>
+               label={t('common.next')} />
             )}
 
             {step > 0 ? (
-              <Button mode="text" onPress={() => setStep((value) => Math.max(0, value - 1))}>
-                {t('common.back')}
-              </Button>
+              <AppButton variant="text" onPress={() => setStep((value) => Math.max(0, value - 1))} label={t('common.back')} />
             ) : null}
           </View>
         )}
@@ -174,7 +167,7 @@ export default function EnrollmentScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 20, gap: 16, paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 16, paddingBottom: 48 },
   progress: { height: 6, borderRadius: 999 },
   consent: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   actions: { gap: 8, marginTop: 8 },

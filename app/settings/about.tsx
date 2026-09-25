@@ -11,15 +11,17 @@ import { SUPABASE_URL } from '@/supabase/client';
 import { DEVICE_MANAGEMENT_AGREEMENT_VERSION } from '@/config/agreement';
 import { hasNativeDeviceManagement } from '@/native/deviceManagement';
 import { useTranslation } from '@/hooks/useTheme';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function AboutScreen() {
+  const { gutter } = useLayout();
   const { t } = useTranslation();
   const theme = useTheme();
 
   return (
     <Screen>
       <AppHeader title={t('settings.about')} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         <Text variant="headlineSmall" style={{ color: theme.colors.primary, fontWeight: '700' }}>
           {t('common.appName')}
         </Text>
@@ -57,5 +59,5 @@ export default function AboutScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 48 },
 });

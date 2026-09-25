@@ -1,14 +1,16 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useTranslation } from '@/hooks/useTheme';
 import { canReadDirectly } from '@/supabase/client';
 import { useAuthStore } from '@/store/authStore';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 /**
  * Sign-in happens through Supabase Auth, so there is no separate "link" step
@@ -23,6 +25,7 @@ import { useAuthStore } from '@/store/authStore';
 export default function SupabaseLinkScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const directReadsEnabled = useAuthStore((state) => state.directReadsEnabled);
   const [checkedAt] = useState(() => new Date().toISOString());
@@ -33,7 +36,7 @@ export default function SupabaseLinkScreen() {
     <Screen>
       <AppHeader title={t('supabaseLink.title')} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
           {t('supabaseLink.explain')}
         </Text>
@@ -67,19 +70,16 @@ export default function SupabaseLinkScreen() {
           </Text>
         ) : null}
 
-        <Button
-          mode="text"
+        <AppButton
+          variant="text"
           onPress={() => router.back()}
-          contentStyle={styles.buttonContent}
-        >
-          {t('common.done')}
-        </Button>
+         label={t('common.done')} />
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 14, paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 14, paddingBottom: 48 },
   buttonContent: { height: 48 },
 });

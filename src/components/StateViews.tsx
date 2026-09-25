@@ -1,21 +1,33 @@
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
+import { AppIcon } from '@/components/AppIcon';
 import { useTranslation } from '@/hooks/useTheme';
+import { radius, spacing, useLayout } from '@/theme/layout';
 
 interface EmptyStateProps {
   title?: string;
   body?: string;
+  /** A soft icon disc, so the state looks designed rather than unfinished. */
+  icon?: string;
   action?: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 }
 
-export function EmptyState({ title, body, action, style }: EmptyStateProps) {
+/** "There is nothing here" — and, where it matters, why. */
+export function EmptyState({ title, body, icon = 'inbox-outline', action, style }: EmptyStateProps) {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   return (
-    <View style={[styles.container, style]}>
-      <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>
+    <View style={[styles.container, { paddingHorizontal: gutter }, style]}>
+      <View style={[styles.disc, { backgroundColor: theme.colors.surfaceVariant }]}>
+        <AppIcon name={icon} size={26} color={theme.colors.onSurfaceVariant} />
+      </View>
+      <Text
+        variant="titleMedium"
+        style={{ color: theme.colors.onSurface, fontWeight: '700', textAlign: 'center' }}
+      >
         {title ?? t('errors.emptyTitle')}
       </Text>
       <Text
@@ -52,9 +64,16 @@ interface ErrorStateProps {
 export function ErrorState({ message, onRetry, onSignOut, style }: ErrorStateProps) {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   return (
-    <View style={[styles.container, style]}>
-      <Text variant="titleMedium" style={{ color: theme.colors.error }}>
+    <View style={[styles.container, { paddingHorizontal: gutter }, style]}>
+      <View style={[styles.disc, { backgroundColor: theme.colors.errorContainer }]}>
+        <AppIcon name="cloud-alert-outline" size={26} color={theme.colors.onErrorContainer} />
+      </View>
+      <Text
+        variant="titleMedium"
+        style={{ color: theme.colors.onSurface, fontWeight: '700', textAlign: 'center' }}
+      >
         {t('errors.generic')}
       </Text>
       <Text
@@ -63,33 +82,52 @@ export function ErrorState({ message, onRetry, onSignOut, style }: ErrorStatePro
       >
         {message ?? t('errors.generic')}
       </Text>
-      {onRetry ? (
-        <Text
-          variant="labelLarge"
-          style={{ color: theme.colors.primary, marginTop: 8 }}
-          onPress={onRetry}
-          accessibilityRole="button"
-          testID="error-retry"
-        >
-          {t('common.retry')}
-        </Text>
-      ) : null}
-      {onSignOut ? (
-        <Text
-          variant="labelLarge"
-          style={{ color: theme.colors.onSurfaceVariant, marginTop: 8 }}
-          onPress={onSignOut}
-          accessibilityRole="button"
-          testID="error-sign-out"
-        >
-          {t('settings.signOut')}
-        </Text>
+      {onRetry || onSignOut ? (
+        <View style={styles.actions}>
+          {onRetry ? (
+            <Text
+              variant="labelLarge"
+              style={{ color: theme.colors.primary, fontWeight: '700' }}
+              onPress={onRetry}
+              accessibilityRole="button"
+              testID="error-retry"
+            >
+              {t('common.retry')}
+            </Text>
+          ) : null}
+          {onSignOut ? (
+            <Text
+              variant="labelLarge"
+              style={{ color: theme.colors.onSurfaceVariant }}
+              onPress={onSignOut}
+              accessibilityRole="button"
+              testID="error-sign-out"
+            >
+              {t('settings.signOut')}
+            </Text>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
-  body: { textAlign: 'center' },
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xxl,
+    gap: spacing.sm,
+  },
+  disc: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  body: { textAlign: 'center', maxWidth: 420 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl, marginTop: spacing.md },
 });

@@ -30,9 +30,17 @@ export function StatusBadge({ label, tone = 'neutral', style }: StatusBadgeProps
         style,
       ]}
       accessibilityRole="text"
+      accessibilityLabel={label}
     >
-      <Text variant="labelSmall" style={{ color: palette.foreground, fontWeight: '700' }}>
-        {label.toUpperCase()}
+      {/* A dot reads as a state at a glance; a coloured word alone does not,
+          and a screen of them turns into a wall of shouting capitals. */}
+      <View style={[styles.dot, { backgroundColor: palette.foreground }]} />
+      <Text
+        variant="labelSmall"
+        numberOfLines={1}
+        style={{ color: palette.foreground, fontWeight: '700', letterSpacing: 0.3 }}
+      >
+        {label}
       </Text>
     </View>
   );
@@ -79,10 +87,14 @@ export function LoadingState({ label }: { label?: string }) {
 
 const styles = StyleSheet.create({
   badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     alignSelf: 'flex-start',
+    gap: 6,
     borderRadius: 999,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
   },
+  dot: { width: 6, height: 6, borderRadius: 3 },
   centered: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
 });

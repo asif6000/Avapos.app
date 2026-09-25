@@ -1,17 +1,20 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { SectionCard } from '@/components/SectionCard';
 import { usePayment } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function PaymentPendingScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const { paymentId } = useLocalSearchParams<{ paymentId: string }>();
   const { refetch, isFetching, data } = usePayment(paymentId);
@@ -31,7 +34,7 @@ export default function PaymentPendingScreen() {
   return (
     <Screen>
       <AppHeader title={t('payments.pending')} back={false} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         <SectionCard>
           <Text variant="headlineSmall" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
             {t('payments.pending')}
@@ -46,24 +49,18 @@ export default function PaymentPendingScreen() {
           ) : null}
         </SectionCard>
 
-        <Button
-          mode="contained"
+        <AppButton
           loading={isFetching}
           onPress={() => void checkStatus()}
-          contentStyle={styles.buttonContent}
           testID="payment-pending-check"
-        >
-          {t('payments.checkStatus')}
-        </Button>
-        <Button mode="text" onPress={() => router.replace('/(tabs)')}>
-          {t('common.done')}
-        </Button>
+         label={t('payments.checkStatus')} />
+        <AppButton variant="text" onPress={() => router.replace('/(tabs)')} label={t('common.done')} />
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   buttonContent: { height: 52 },
 });

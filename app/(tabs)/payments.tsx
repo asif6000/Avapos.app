@@ -1,15 +1,16 @@
 import { useRouter } from 'expo-router';
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { FAB, Text, useTheme } from 'react-native-paper';
+import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { FAB, useTheme } from 'react-native-paper';
 
 import { AppHeader } from '@/components/AppHeader';
+import { ListRow } from '@/components/ui/ListRow';
 import { ListSkeleton } from '@/components/Skeleton';
 import { paymentStatusBadge } from '@/components/StatusBadge';
 import { EmptyState, ErrorState } from '@/components/StateViews';
-import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { usePayments } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
+import { radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { formatCurrency, formatDateTime, paymentStatusLabel } from '@/utils/format';
 import type { Payment } from '@/types/domain';
 
@@ -21,6 +22,7 @@ export default function PaymentHistoryScreen() {
   const { data, isLoading, isRefetching, error, refetch } = usePayments(1);
 
   const payments = data?.items ?? [];
+  const { gutter } = useLayout();
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
@@ -37,12 +39,16 @@ export default function PaymentHistoryScreen() {
       ) : error && error.kind !== 'network' ? (
         <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       ) : payments.length === 0 ? (
-        <EmptyState title={t('payments.empty')} body={t('dashboard.noInstallment')} />
+        <EmptyState
+          icon="receipt-text-outline"
+          title={t('payments.empty')}
+          body={t('dashboard.noInstallment')}
+        />
       ) : (
         <FlatList
           data={payments}
           keyExtractor={(item: Payment) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingHorizontal: gutter }]}
           refreshControl={
             <RefreshControl
               refreshing={isRefetching}
@@ -51,27 +57,20 @@ export default function PaymentHistoryScreen() {
             />
           }
           renderItem={({ item }) => (
-            <Pressable
-              onPress={() => router.push({ pathname: '/payments/[id]', params: { id: item.id } })}
-              accessibilityRole="button"
-              testID={`payment-${item.id}`}
+            <View
+              style={[
+                styles.item,
+                { backgroundColor: theme.colors.surface, borderColor: theme.colors.outlineVariant },
+              ]}
             >
-              <SectionCard>
-                <View style={styles.itemHeader}>
-                  <Text variant="titleMedium" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
-                    {formatCurrency(item.amount)}
-                  </Text>
-                  {paymentStatusBadge(item.status, paymentStatusLabel(item.status, t))}
-                </View>
-                <InfoRow
-                  label={t('payments.date')}
-                  value={formatDateTime(item.paidAt ?? item.createdAt, language)}
-                  tone="muted"
-                />
-                <InfoRow label={t('payments.method')} value={item.method} tone="muted" />
-                <InfoRow label={t('payments.transaction')} value={item.transactionId} tone="muted" />
-              </SectionCard>
-            </Pressable>
+              <ListRow
+                title={formatCurrency(item.amount)}
+                subtitle={`${formatDateTime(item.paidAt ?? item.createdAt, language)} · ${item.method}`}
+                trailingNode={paymentStatusBadge(item.status, paymentStatusLabel(item.status, t))}
+                icon={item.status === 'SUCCESS' ? 'check-circle-outline' : 'alert-circle-outline'}
+                onPress={() => router.push({ pathname: '/payments/[id]', params: { id: item.id } })}
+              />
+            </View>
           )}
         />
       )}
@@ -89,8 +88,13 @@ export default function PaymentHistoryScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16 },
-  list: { padding: 16, gap: 12, paddingBottom: 96 },
-  itemHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  fab: { position: 'absolute', right: 16, bottom: 16 },
+  content: { padding: spacing.lg },
+  // Room at the end so the last payment is never hidden behind the pay button.
+  list: { gap: spacing.sm, paddingBottom: 104, width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center' },
+  item: {
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+  },
+  fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg },
 });

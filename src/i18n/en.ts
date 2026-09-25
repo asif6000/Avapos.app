@@ -130,6 +130,13 @@ export const en = {
     contractStatus: 'Contract status',
     timeline: 'Timeline',
     allPaid: 'Everything is paid. Enjoy your phone!',
+    status: {
+      PAID: 'Paid',
+      DUE: 'Due',
+      OVERDUE: 'Overdue',
+      UPCOMING: 'Upcoming',
+      PARTIAL: 'Part paid',
+    },
   },
   payments: {
     title: 'Payments',

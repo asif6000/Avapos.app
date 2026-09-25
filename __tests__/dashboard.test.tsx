@@ -137,7 +137,10 @@ describe('Dashboard screen', () => {
 
     const view = await renderScreen();
 
-    expect(await view.findByText('PAYMENT DUE')).toBeTruthy();
+    // The label is the server's word for the state, not one the app invented.
+    // Sentence case: the coloured dot in the badge carries the emphasis, so the
+    // text no longer needs to shout.
+    expect(await view.findByText('Payment due')).toBeTruthy();
   });
 
   it('shows an empty state when no device is linked', async () => {

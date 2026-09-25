@@ -111,6 +111,31 @@ admin credentials and database passwords live on the backend and must never be
 added to `app.config.ts`, `EXPO_PUBLIC_*`, `SecureStore`, `AsyncStorage` or any
 bundled asset.
 
+## Design system
+
+One source for spacing, radii and touch targets: `src/theme/layout.ts`. Screens
+do not invent their own numbers — a gap, a radius and a minimum target come from
+`spacing`, `radius` and `MIN_TAP_TARGET` (48dp, which is the difference between a
+button you can hit while walking and one you cannot).
+
+Responsive behaviour is a component, not a per-screen decision. `useLayout()`
+reports the window width and `Container` caps content at 720dp and centres it, so
+a tablet or a landscape phone does not stretch one column of text to the far
+edge; `StatTile` and `ListRow` reflow on their own. Anything that needs a
+breakpoint asks `useLayout()`, not `Dimensions.get()`.
+
+The shared building blocks, and what they are for:
+
+| Component | Use it for |
+| --- | --- |
+| `AppButton` | Every button. Five variants, two sizes, always a 48dp ripple |
+| `Field` | Every input. Label above, validation message in the same place |
+| `ListRow` | Every list row: title, detail, trailing value, chevron only if it goes somewhere |
+| `StatTile` | A number with its label — money, dates, counts |
+| `SectionCard` / `InfoRow` | The only container and the only label/value pair |
+| `StatusBadge` | Server-provided state. The dot carries the emphasis, so the text is sentence case |
+| `EmptyState` / `ErrorState` | Nothing to show, and something that failed. `ErrorState` offers sign-out where the customer is signed in, so a broken screen is never a dead end |
+
 ## Layout
 
 ```

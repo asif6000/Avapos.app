@@ -1,21 +1,23 @@
 import { useRouter } from 'expo-router';
-import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
+import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { useTheme } from 'react-native-paper';
 
 import { ApiError } from '@/api/errors';
 import { AppHeader } from '@/components/AppHeader';
 import { ListSkeleton } from '@/components/Skeleton';
 import { EmptyState, ErrorState } from '@/components/StateViews';
-import { SectionCard } from '@/components/SectionCard';
+import { ListRow } from '@/components/ui/ListRow';
 import { useMarkAllNotificationsRead } from '@/hooks/queries';
 import { useNotificationSource } from '@/hooks/useDataSources';
 import { useTranslation } from '@/hooks/useTheme';
+import { radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { formatDateTime } from '@/utils/format';
-import type { AppNotification, NotificationType } from '@/types/domain';
+import type { AppNotification } from '@/types/domain';
 import { resolveDeepLink } from '@/services/notifications';
 
 export default function NotificationCenterScreen() {
   const { t, language } = useTranslation();
+  const { gutter } = useLayout();
   const theme = useTheme();
   const router = useRouter();
   const list = useNotificationSource();
@@ -45,18 +47,18 @@ export default function NotificationCenterScreen() {
       />
 
       {list.isLoading ? (
-        <View style={styles.content}>
+        <View style={[styles.content, { paddingHorizontal: gutter }]}>
           <ListSkeleton count={4} />
         </View>
       ) : list.error && (list.error as ApiError).kind !== 'network' ? (
         <ErrorState message={(list.error as ApiError).message} onRetry={list.refetch} />
       ) : items.length === 0 ? (
-        <EmptyState title={t('notifications.empty')} />
+        <EmptyState icon="bell-off-outline" title={t('notifications.empty')} />
       ) : (
         <FlatList
           data={items}
           keyExtractor={(item: AppNotification) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingHorizontal: gutter }]}
           refreshControl={
             <RefreshControl
               refreshing={false}
@@ -65,37 +67,26 @@ export default function NotificationCenterScreen() {
             />
           }
           renderItem={({ item }) => (
-            <Pressable
-              onPress={() => open(item)}
-              accessibilityRole="button"
-              testID={`notification-${item.id}`}
+            <View
+              style={[
+                styles.item,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: item.isRead ? theme.colors.outlineVariant : theme.colors.primary,
+                },
+              ]}
             >
-              <SectionCard
-                style={
-                  item.isRead
-                    ? undefined
-                    : { borderColor: theme.colors.primary, borderWidth: 1 }
+              <ListRow
+                title={item.title}
+                subtitle={item.message}
+                trailing={formatDateTime(item.createdAt, language)}
+                trailingNode={
+                  item.isRead ? null : <View style={[styles.dot, { backgroundColor: theme.colors.primary }]} />
                 }
-              >
-                <View style={styles.itemHeader}>
-                  <Text
-                    variant="titleSmall"
-                    style={{ flex: 1, color: theme.colors.onSurface, fontWeight: '700' }}
-                  >
-                    {item.title}
-                  </Text>
-                  {!item.isRead ? (
-                    <View style={[styles.dot, { backgroundColor: theme.colors.primary }]} />
-                  ) : null}
-                </View>
-                <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {item.message}
-                </Text>
-                <Text variant="labelSmall" style={{ color: theme.colors.onSurfaceVariant }}>
-                  {formatDateTime(item.createdAt, language)} · {item.type satisfies NotificationType}
-                </Text>
-              </SectionCard>
-            </Pressable>
+                icon={item.isRead ? 'bell-outline' : 'bell-ring-outline'}
+                onPress={() => open(item)}
+              />
+            </View>
           )}
         />
       )}
@@ -105,8 +96,20 @@ export default function NotificationCenterScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16 },
-  list: { padding: 16, gap: 12, paddingBottom: 40 },
-  itemHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  content: { padding: spacing.lg },
+  list: {
+    gap: spacing.sm,
+    paddingBottom: spacing.xxl,
+    width: '100%',
+    maxWidth: CONTENT_MAX_WIDTH,
+    alignSelf: 'center',
+  },
+  // Unread notifications get a primary border rather than a red one: being new
+  // is not an error.
+  item: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
   dot: { width: 8, height: 8, borderRadius: 4 },
 });

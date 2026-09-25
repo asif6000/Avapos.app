@@ -10,8 +10,10 @@ import { useInstallment } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
 import { formatCurrency, formatDate, formatRelativeDue } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function InstallmentDetailScreen() {
+  const { gutter } = useLayout();
   const { t, language } = useTranslation();
   const theme = useTheme();
   const signOut = useAuthStore((state) => state.signOut);
@@ -32,7 +34,7 @@ export default function InstallmentDetailScreen() {
       ) : error ? (
         <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       ) : data ? (
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
           <SectionCard>
             <InfoRow label={t('payments.amount')} value={formatCurrency(data.amount)} tone="strong" />
             <InfoRow label={t('installments.paid')} value={formatCurrency(data.paidAmount)} />
@@ -70,5 +72,5 @@ export default function InstallmentDetailScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
 });

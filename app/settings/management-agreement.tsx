@@ -1,15 +1,17 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { DEVICE_MANAGEMENT_AGREEMENT_VERSION } from '@/config/agreement';
 import { useCurrentAgreement } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { MANAGEMENT_AGREEMENT_SECTIONS } from '@/content/legal';
 import { formatDateTime } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 /**
  * Full text of the Device Management Agreement plus the version and timestamp
@@ -18,6 +20,7 @@ import { formatDateTime } from '@/utils/format';
 export default function ManagementAgreementScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const { data } = useCurrentAgreement();
   const [busy, setBusy] = useState(false);
@@ -26,7 +29,7 @@ export default function ManagementAgreementScreen() {
     <Screen>
       <AppHeader title={t('settings.managementAgreement')} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         <Text variant="labelMedium" style={{ color: theme.colors.onSurfaceVariant }}>
           {t('settings.version')} {DEVICE_MANAGEMENT_AGREEMENT_VERSION}
         </Text>
@@ -50,24 +53,20 @@ export default function ManagementAgreementScreen() {
           </View>
         ))}
 
-        <Button
-          mode="contained"
+        <AppButton
           loading={busy}
           onPress={() => {
             setBusy(true);
             router.push('/device/enrollment');
           }}
-          contentStyle={styles.buttonContent}
-        >
-          {data?.acceptedAt ? t('common.seeDetails') : t('device.enroll')}
-        </Button>
+         label={data?.acceptedAt ? t('common.seeDetails') : t('device.enroll')} />
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 20, gap: 18, paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 18, paddingBottom: 48 },
   paragraph: { marginTop: 4 },
   buttonContent: { height: 52 },
 });

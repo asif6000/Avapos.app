@@ -5,15 +5,17 @@ import { AppHeader } from '@/components/AppHeader';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
 import { PRIVACY_SECTIONS } from '@/content/legal';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function PrivacyScreen() {
+  const { gutter } = useLayout();
   const { t } = useTranslation();
   const theme = useTheme();
 
   return (
     <Screen>
       <AppHeader title={t('settings.privacy')} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         {PRIVACY_SECTIONS.map((section) => (
           <View key={section.heading}>
             <Text variant="titleMedium" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
@@ -32,6 +34,6 @@ export default function PrivacyScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 20, gap: 18, paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 18, paddingBottom: 48 },
   paragraph: { marginTop: 4 },
 });

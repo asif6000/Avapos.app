@@ -2,9 +2,10 @@ import * as Application from 'expo-application';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
-import { Button, Dialog, List, Portal, Switch, Text, useTheme } from 'react-native-paper';
+import { Dialog, List, Portal, Switch, Text } from 'react-native-paper';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { useProfile, useSettings, useUpdateSettings } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
@@ -12,10 +13,11 @@ import { registerForPushNotifications } from '@/services/notifications';
 import { useAuthStore } from '@/store/authStore';
 import { usePreferencesStore } from '@/store/preferencesStore';
 import { maskPhone } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
-  const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const signOut = useAuthStore((state) => state.signOut);
   const language = usePreferencesStore((state) => state.language);
@@ -33,7 +35,7 @@ export default function SettingsScreen() {
     <Screen>
       <AppHeader title={t('settings.title')} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         <List.Section>
           <List.Subheader>{t('settings.profile')}</List.Subheader>
           <List.Item
@@ -152,16 +154,11 @@ export default function SettingsScreen() {
           />
         </List.Section>
 
-        <Button
-          mode="outlined"
+        <AppButton
+          variant="outline"
           onPress={() => setConfirmSignOut(true)}
-          buttonColor={theme.colors.error}
-          textColor={theme.colors.error}
-          contentStyle={styles.buttonContent}
           testID="settings-signout"
-        >
-          {t('settings.signOut')}
-        </Button>
+         label={t('settings.signOut')} />
 
       </ScrollView>
 
@@ -172,16 +169,14 @@ export default function SettingsScreen() {
             <Text variant="bodyMedium">{t('settings.signOutConfirm')}</Text>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setConfirmSignOut(false)}>{t('common.cancel')}</Button>
-            <Button
+            <AppButton onPress={() => setConfirmSignOut(false)} label={t('common.cancel')} />
+            <AppButton
               onPress={async () => {
                 setConfirmSignOut(false);
                 await signOut();
                 router.replace('/(auth)/login');
               }}
-            >
-              {t('auth.signOut')}
-            </Button>
+             label={t('auth.signOut')} />
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -190,6 +185,6 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingBottom: 48 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', paddingBottom: 48 },
   buttonContent: { height: 52, marginHorizontal: 16, marginTop: 8 },
 });

@@ -1,17 +1,20 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet } from 'react-native';
-import { Button, Text, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { Screen } from '@/components/Screen';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { usePayment } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { formatCurrency } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function PaymentFailedScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const { paymentId } = useLocalSearchParams<{ paymentId: string }>();
   const { data } = usePayment(paymentId);
@@ -19,7 +22,7 @@ export default function PaymentFailedScreen() {
   return (
     <Screen>
       <AppHeader title={t('payments.failed')} back={false} />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         <SectionCard style={{ borderColor: theme.colors.error }}>
           <Text variant="headlineSmall" style={{ color: theme.colors.error, fontWeight: '700' }}>
             {t('payments.failed')}
@@ -32,23 +35,17 @@ export default function PaymentFailedScreen() {
           ) : null}
         </SectionCard>
 
-        <Button
-          mode="contained"
+        <AppButton
           onPress={() => router.replace('/payments/create')}
-          contentStyle={styles.buttonContent}
           testID="payment-failed-retry"
-        >
-          {t('payments.tryAgain')}
-        </Button>
-        <Button mode="text" onPress={() => router.replace('/(tabs)/support')}>
-          {t('device.contactSupport')}
-        </Button>
+         label={t('payments.tryAgain')} />
+        <AppButton variant="text" onPress={() => router.replace('/(tabs)/support')} label={t('device.contactSupport')} />
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   buttonContent: { height: 52 },
 });

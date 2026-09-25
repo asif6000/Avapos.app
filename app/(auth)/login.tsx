@@ -3,10 +3,13 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
-import { Button, HelperText, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
+import { Snackbar, Text, useTheme } from 'react-native-paper';
 import { z } from 'zod';
 
 import { Screen } from '@/components/Screen';
+import { AppButton } from '@/components/ui/AppButton';
+import { Field } from '@/components/ui/Field';
+import { spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
 import { isValidEmail, maskEmail } from '@/utils/format';
@@ -29,6 +32,7 @@ export default function LoginScreen() {
   const lastEmail = useAuthStore((state) => state.lastEmail);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const { gutter } = useLayout();
 
   const {
     control,
@@ -61,7 +65,7 @@ export default function LoginScreen() {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.container}>
+        <View style={[styles.container, { paddingHorizontal: gutter }]}>
           <View style={styles.header}>
             <Text
               variant="headlineMedium"
@@ -78,25 +82,25 @@ export default function LoginScreen() {
             control={control}
             name="email"
             render={({ field: { onChange, onBlur, value } }) => (
-              <View>
-                <TextInput
-                  mode="outlined"
-                  label={t('auth.email')}
-                  placeholder="name@example.com"
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  keyboardType="email-address"
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  error={Boolean(errors.email)}
-                  testID="login-email"
-                />
-                <HelperText type="error" visible={Boolean(errors.email)}>
-                  {errors.email?.message === 'email' ? t('auth.invalidEmail') : t('common.required')}
-                </HelperText>
-              </View>
+              <Field
+                label={t('auth.email')}
+                placeholder="name@example.com"
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                keyboardType="email-address"
+                autoComplete="email"
+                autoCapitalize="none"
+                error={Boolean(errors.email)}
+                helper={
+                  errors.email
+                    ? errors.email?.message === 'email'
+                      ? t('auth.invalidEmail')
+                      : t('common.required')
+                    : null
+                }
+                testID="login-email"
+              />
             )}
           />
 
@@ -104,41 +108,32 @@ export default function LoginScreen() {
             control={control}
             name="password"
             render={({ field: { onChange, onBlur, value } }) => (
-              <View>
-                <TextInput
-                  mode="outlined"
-                  label={t('auth.password')}
-                  value={value}
-                  onChangeText={onChange}
-                  onBlur={onBlur}
-                  secureTextEntry
-                  autoComplete="current-password"
-                  error={Boolean(errors.password)}
-                  testID="login-password"
-                />
-                <HelperText type="error" visible={Boolean(errors.password)}>
-                  {t('common.required')}
-                </HelperText>
-              </View>
+              <Field
+                label={t('auth.password')}
+                value={value}
+                onChangeText={onChange}
+                onBlur={onBlur}
+                secureTextEntry
+                autoComplete="current-password"
+                error={Boolean(errors.password)}
+                helper={errors.password ? t('common.required') : null}
+                testID="login-password"
+              />
             )}
           />
 
-          <Button
-            mode="contained"
-            onPress={onSubmit}
+          <AppButton
+            size="lg"
+            block
+            label={t('auth.signIn')}
             loading={submitting}
             disabled={submitting}
-            contentStyle={styles.buttonContent}
-            style={styles.button}
             testID="login-submit"
-          >
-            {t('auth.signIn')}
-          </Button>
+            onPress={onSubmit}
+          />
 
           <View style={styles.footer}>
-            <Button mode="text" onPress={() => router.push('/(auth)/register')}>
-              {t('auth.noAccount')}
-            </Button>
+            <AppButton variant="text" label={t('auth.noAccount')} onPress={() => router.push('/(auth)/register')} />
           </View>
 
           {lastEmail ? (
@@ -158,10 +153,18 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: { flex: 1, justifyContent: 'center', padding: 24, gap: 4 },
-  header: { marginBottom: 24, gap: 4 },
-  button: { marginTop: 12, borderRadius: 999 },
-  buttonContent: { height: 52 },
-  note: { textAlign: 'center', marginTop: 16 },
-  footer: { marginTop: 8, alignItems: 'center' },
+  // Centred, width-capped: the form stays a form on a tablet instead of
+  // stretching two inputs across a shop counter screen.
+  container: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    width: '100%',
+    maxWidth: CONTENT_MAX_WIDTH,
+    alignSelf: 'center',
+    paddingVertical: spacing.xxl,
+    gap: spacing.xs,
+  },
+  header: { marginBottom: spacing.xl, gap: 2 },
+  footer: { marginTop: spacing.md, alignItems: 'center' },
+  note: { textAlign: 'center', marginTop: spacing.lg },
 });

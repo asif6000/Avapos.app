@@ -1,16 +1,18 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
-import { Button, RadioButton, Text, useTheme } from 'react-native-paper';
+import { RadioButton, Text, useTheme } from 'react-native-paper';
 
 import { ApiError } from '@/api/errors';
 import { AppHeader } from '@/components/AppHeader';
+import { AppButton } from '@/components/ui/AppButton';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useCreatePayment, useInstallment, useInstallments } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { useNetworkStore } from '@/store/networkStore';
 import { usePaymentFlowStore } from '@/store/paymentFlowStore';
 import { formatCurrency, formatDate } from '@/utils/format';
+import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 /**
  * The customer chooses an amount and a gateway. The app then asks the backend to
@@ -19,6 +21,7 @@ import { formatCurrency, formatDate } from '@/utils/format';
 export default function CreatePaymentScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const { gutter } = useLayout();
   const router = useRouter();
   const online = useNetworkStore((state) => state.online);
   const params = useLocalSearchParams<{ installmentId?: string }>();
@@ -62,7 +65,7 @@ export default function CreatePaymentScreen() {
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
       <AppHeader title={t('payments.payNow')} />
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
         {installment ? (
           <SectionCard>
             <InfoRow
@@ -107,16 +110,12 @@ export default function CreatePaymentScreen() {
           </Text>
         ) : null}
 
-        <Button
-          mode="contained"
+        <AppButton
           onPress={() => void onPay()}
           loading={createPayment.isPending}
           disabled={createPayment.isPending || !online || !installment}
-          contentStyle={styles.buttonContent}
           testID="create-payment-submit"
-        >
-          {t('payments.payNow')}
-        </Button>
+         label={t('payments.payNow')} />
       </ScrollView>
     </View>
   );
@@ -124,6 +123,6 @@ export default function CreatePaymentScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  content: { padding: 16, gap: 12, paddingBottom: 40 },
+  content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   buttonContent: { height: 52 },
 });
