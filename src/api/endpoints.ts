@@ -91,10 +91,19 @@ export function createEndpoints(client: ApiClient) {
       /** [live] */
       history: (page = 1) =>
         client.get<Paginated<Payment>>('/payments', { query: { page, perPage: 20 } }),
-      /** [live] */
+      /**
+       * [live] Answers 501 while the server has no gateway key configured, which
+       * the app shows as "the payment provider is not available" rather than as a
+       * failure of the customer's payment. The amount in `payload` is
+       * display-only: the server re-reads it from the contract.
+       */
       create: (payload: CreatePaymentRequest) =>
         client.post<PaymentSession>('/payments/create', payload),
-      /** [todo] Must reflect the backend's own verification of the gateway. */
+      /**
+       * [live] Reports only what the server has itself verified with the
+       * gateway. No retries: polling a status that has just changed would only
+       * make the customer wait.
+       */
       status: (id: string) =>
         client.get<Payment>(`/payments/${encodeURIComponent(id)}/status`, { retries: 0 }),
     },

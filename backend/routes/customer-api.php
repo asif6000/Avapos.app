@@ -69,7 +69,18 @@ Route::prefix('customer')->group(function () {
 */
 
 Route::prefix('api')
-    ->middleware(['throttle:30,1'])
+    ->middleware(['throttle:60,1'])
     ->group(function () {
-        Route::post('gateway/callback', GatewayCallbackController::class);
+        Route::post('gateway/ipn', [GatewayCallbackController::class, 'ipn']);
+    });
+
+/*
+| The customer's browser returns here. It is a GET that carries `invoice_id`,
+| and it renders a page rather than JSON, because a person is following it.
+*/
+Route::prefix('customer/payment')
+    ->middleware(['throttle:60,1'])
+    ->group(function () {
+        Route::match(['get', 'post'], 'return', [GatewayCallbackController::class, 'return']);
+        Route::match(['get', 'post'], 'cancel', [GatewayCallbackController::class, 'return']);
     });

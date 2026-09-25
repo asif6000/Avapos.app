@@ -81,7 +81,32 @@ customer table is named differently.
 SDK. The amount check is the part that matters: the `amount` the phone sends is
 display-only and is compared against the contract, with a mismatch logged.
 
-**7. CORS, for the web build.** Copy `config/cors.php` across, or merge its keys
+**7. The payment gateway (UddoktaPay).** Set these in the server's `.env`:
+
+```bash
+UDDOKTAPAY_API_KEY=…                     # Dashboard → API Keys
+UDDOKTAPAY_BASE_URL=https://srabontelecom.paymently.io   # the installation, NOT …/api
+UDDOKTAPAY_RETURN_URL=https://srabontelecom.paymently.io/customer/payment/return
+UDDOKTAPAY_CANCEL_URL=https://srabontelecom.paymently.io/customer/payment/cancel
+UDDOKTAPAY_WEBHOOK_URL=https://srabontelecom.paymently.io/api/gateway/ipn
+```
+
+The key travels in the `RT-UDDOKTAPAY-API-KEY` header and nowhere else. The
+adapter speaks the documented API: `POST /api/checkout-v2` creates the order and
+`POST /api/verify-payment` takes an `invoice_id`.
+
+Two things about UddoktaPay that shape the design:
+
+- **The create response carries no invoice id**, only a `payment_url`. The
+  invoice id arrives on the return URL (a `GET` with `invoice_id`) and in the
+  IPN body, so a payment cannot be verified until one of those has been seen.
+- **There is no callback signature.** So a callback is never believed: both
+  handlers ask UddoktaPay what really happened, and the payment is identified
+  from the `metadata` that comes back — not from the request. A stranger posting
+  somebody else's invoice id settles nothing, because the verified metadata does
+  not name a payment we hold.
+
+**8. CORS, for the web build.** Copy `config/cors.php` across, or merge its keys
 into the one the app already has, and clear the cached config:
 
 ```bash

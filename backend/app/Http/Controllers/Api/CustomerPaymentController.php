@@ -79,10 +79,10 @@ class CustomerPaymentController extends Controller
             )));
         }
 
-        // The amount above came from the contract, not from the phone. The
-        // gateway is asked to charge *that* figure, with the merchant key held
-        // on this server; the response carries no key, no signature and no
-        // secret back to the customer.
+        // The amount above came from the contract, not from the phone. UddoktaPay
+        // is asked to charge *that* figure, with the merchant key held on this
+        // server; the response carries no key and no secret back to the
+        // customer — only a reference, a checkout URL and when it expires.
         try {
             return response()->json($this->payments()->start(
                 customer: $customer,

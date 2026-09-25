@@ -21,11 +21,11 @@ return [
     |
     | Required in the server's `.env`:
     |
-    |   PAYMENT_GATEWAY_BASE_URL=https://srabontelecom.paymently.io/api
-    |   PAYMENT_GATEWAY_API_KEY=...            (rotate anything pasted into chat)
-    |   PAYMENT_CALLBACK_SECRET=...            (shared with the gateway, to sign callbacks)
-    |   PAYMENT_CALLBACK_URL=https://srabontelecom.paymently.io/api/gateway/callback
-    |   PAYMENT_GATEWAY_ENABLED=true
+    |   UDDOKTAPAY_API_KEY=...                 (UddoktaPay → Dashboard → API Keys)
+    |   UDDOKTAPAY_BASE_URL=https://srabontelecom.paymently.io
+    |   UDDOKTAPAY_RETURN_URL=https://srabontelecom.paymently.io/customer/payment/return
+    |   UDDOKTAPAY_CANCEL_URL=https://srabontelecom.paymently.io/customer/payment/cancel
+    |   UDDOKTAPAY_WEBHOOK_URL=https://srabontelecom.paymently.io/api/gateway/ipn
     |
     | While `enabled` is false, `POST /customer/payments/create` answers 501 with
     | a plain message, which is exactly what the app shows the customer. Turning
@@ -33,25 +33,32 @@ return [
     |
     */
 
-    'gateway' => env('PAYMENT_GATEWAY', 'uddaktapay'),
-
-    'base_url' => env('PAYMENT_GATEWAY_BASE_URL', 'https://srabontelecom.paymently.io/api'),
-
-    /** Server-side only. Never returned to the client, never logged. */
-    'api_key' => env('PAYMENT_GATEWAY_API_KEY'),
+    'gateway' => env('PAYMENT_GATEWAY', 'uddoktapay'),
 
     /**
-     * Used to verify that a callback really came from the gateway. A callback
-     * that is not verified is not evidence that anyone paid.
+     * The UddoktaPay *installation*, not the API path. UddoktaPay appends
+     * `api/checkout-v2` and `api/verify-payment` itself — pointing this at
+     * `.../api` would produce `.../api/api/checkout-v2`, which is a 404.
      */
-    'callback_secret' => env('PAYMENT_CALLBACK_SECRET'),
+    'base_url' => rtrim((string) env('UDDOKTAPAY_BASE_URL', 'https://srabontelecom.paymently.io'), '/'),
 
-    /** Where the gateway posts the result of a payment. */
-    'callback_url' => env('PAYMENT_CALLBACK_URL'),
+    /**
+     * The merchant key, sent in the `RT-UDDOKTAPAY-API-KEY` header.
+     * Server-side only: never returned to the client, never logged.
+     */
+    'api_key' => env('UDDOKTAPAY_API_KEY'),
 
-    'timeout' => (int) env('PAYMENT_GATEWAY_TIMEOUT', 20),
+    /**
+     * Where the customer lands after paying, and where a cancellation goes.
+     * UddoktaPay derives its success/failure/cancel URLs from this.
+     */
+    'return_url' => env('UDDOKTAPAY_RETURN_URL'),
+    'cancel_url' => env('UDDOKTAPAY_CANCEL_URL'),
 
-    'enabled' => (bool) env('PAYMENT_GATEWAY_ENABLED', false),
+    /** UddoktaPay's IPN. It posts the same invoice the return URL receives. */
+    'webhook_url' => env('UDDOKTAPAY_WEBHOOK_URL'),
+
+    'timeout' => (int) env('UDDOKTAPAY_TIMEOUT', 20),
 
     /*
     | The methods the app offers, mapped to the gateway's own names. The app's

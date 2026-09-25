@@ -223,20 +223,34 @@ or value ever appears in `src/`, `app/`, `plugins/`, `modules/` or the app
 config, and the backend is the only place `PaymentProcessor` moves a payment to
 SUCCESS.
 
+The gateway is **UddoktaPay**, self-hosted at
+`https://srabontelecom.paymently.io`, and it is reached only from the backend
+(`backend/config/payment.php` → `Services/Payments/HttpPaymentGateway.php`).
 The chain, in order, all of it server-side:
 
 ```
 app → POST /customer/payments/create   (amount re-read from the contract)
-     → gateway createCharge            (order id + checkout URL, no key returned)
-     → customer pays at the gateway
-     → POST /api/gateway/callback      (signature checked, then the gateway is
-                                        *asked* what happened — the body is not
-                                        believed)
-     → settleFromGateway               (only now may a payment become SUCCESS,
-                                        and the installment is marked paid and a
-                                        fully settled plan releases the device)
+     → POST {gateway}/api/checkout-v2  (RT-UDDOKTAPAY-API-KEY header; the
+                                        response is a checkout URL and no
+                                        invoice id)
+     → customer pays on the gateway page
+     → GET  /customer/payment/return    (browser, carries ?invoice_id=)
+        POST /api/gateway/ipn           (UddoktaPay's own callback)
+     → POST {gateway}/api/verify-payment  (asked what happened — the callback
+                                        body is never believed)
+     → settleFromInvoice               (the payment is identified from the
+                                        *verified* metadata; only now may it
+                                        become SUCCESS, the installment is
+                                        marked paid, and a fully settled plan
+                                        releases the device)
      → app polls GET /customer/payments/{id}/status
 ```
+
+Two UddoktaPay behaviours are load-bearing here. Its create response contains no
+invoice id, only a `payment_url`, so nothing can be verified until a return or an
+IPN has supplied one. And it does not sign its callbacks, which is precisely why
+the handlers verify through the API and match on the metadata UddoktaPay echoes
+back, instead of trusting the body that arrived.
 
 **Device state.** `DeviceState` always comes from `/devices/me/status`. A missing
 or stale server value surfaces as `null` and is never inferred locally. The

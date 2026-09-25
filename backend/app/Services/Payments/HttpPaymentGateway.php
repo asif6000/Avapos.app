@@ -7,154 +7,164 @@ use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 /**
- * Talks to the gateway over HTTP.
+ * UddoktaPay.
  *
- * The three things this class is careful about:
+ * Documented API, implemented exactly:
  *
- * 1. The key is read from the server's configuration and never leaves it. It is
- *    not in a URL, not in a log line, and not in anything returned to the phone.
- * 2. A gateway response is treated as untrusted input. The amount it echoes back
- *    is compared with the amount we asked for, and a mismatch is refused rather
- *    than recorded — a gateway that answers about a different order is not
- *    evidence about this one.
- * 3. Nothing here decides a payment succeeded. `verifyCharge` reports what the
- *    gateway says; `PaymentProcessor` is what records it.
+ *   POST {base}/api/checkout-v2     → { status, message, payment_url }
+ *   POST {base}/api/verify-payment  → { invoice_id, status, charged_amount, … }
+ *
+ * Both authenticate with the merchant key in the `RT-UDDOKTAPAY-API-KEY` header.
+ * That header is the only place the key appears: it is never a query parameter,
+ * never a log line, and never anything returned to the phone.
+ *
+ * Two things about this gateway are worth knowing, because they shape the design:
+ *
+ * - **The create response carries no invoice id.** It returns a `payment_url`
+ *   only. The invoice id arrives later — as a query parameter on the return URL,
+ *   and in the IPN body. So a payment cannot be verified until one of those has
+ *   been seen, and the return handler is what supplies it.
+ * - **There is no documented signature on the callback.** So the callback is
+ *   never believed: it is treated as a claim ("this invoice id is worth asking
+ *   about") and the answer comes from `verify-payment`. Our own transaction id
+ *   comes back inside `metadata`, which is what links a verified invoice to a
+ *   payment of ours. A stranger posting somebody else's invoice id therefore
+ *   settles nothing: the metadata does not name a payment we hold.
  */
 class HttpPaymentGateway implements PaymentGateway
 {
-    public function __construct(
-        private readonly array $config,
-    ) {
+    /** UddoktaPay's terminal-and-not-yet-terminal states. */
+    private const PAID_STATES = ['COMPLETED', 'PAID', 'SUCCESS'];
+
+    public function __construct(private readonly array $config)
+    {
     }
 
     public function isConfigured(): bool
     {
-        return (bool) ($this->config['enabled'] ?? false)
-            && filled($this->config['api_key'] ?? null)
-            && filled($this->config['base_url'] ?? null);
+        return filled($this->config['api_key'] ?? null) && filled($this->config['base_url'] ?? null);
     }
 
     public function createCharge(ChargeRequest $request): Charge
     {
         $this->assertConfigured();
 
-        // The field names below are the one part of this class that has to match
-        // the gateway's documentation. Everything above and below them is ours.
-        $response = $this->client()->post($this->url('create-payment'), [
-            'api_key' => $this->config['api_key'],
-            'reference' => $request->reference,
-            'order_id' => $request->reference,
-            'amount' => $request->amount,
-            'currency' => $request->currency,
-            'method' => $this->gatewayMethod($request->method),
-            'description' => $request->description,
-            'customer_email' => $request->customerEmail,
-            'callback_url' => $this->config['callback_url'] ?? null,
-        ]);
-
-        if (! $response->successful()) {
-            // The body is the gateway's, and may echo the key back; log the
-            // status and the request reference only.
-            Log::warning('Payment gateway refused to create an order', [
-                'reference' => $request->reference,
-                'status' => $response->status(),
+        $response = Http::timeout((int) ($this->config['timeout'] ?? 20))
+            ->withHeaders([
+                'RT-UDDOKTAPAY-API-KEY' => $this->config['api_key'],
+                'Accept' => 'application/json',
+            ])
+            ->asJson()
+            ->post($this->url('api/checkout-v2'), [
+                'full_name' => $request->description === '' ? 'Customer' : $request->customerName,
+                'email' => $request->customerEmail,
+                // UddoktaPay takes the amount as a string with two decimals.
+                'amount' => number_format($request->amount, 2, '.', ''),
+                'metadata' => $request->metadata,
+                'redirect_url' => $this->config['return_url'] ?? $this->config['callback_url'],
+                'return_type' => 'GET',
+                'cancel_url' => $this->config['cancel_url'] ?? $this->config['callback_url'],
+                'webhook_url' => $this->config['webhook_url'] ?? null,
             ]);
-
-            throw new RuntimeException('The payment provider could not start this payment.');
-        }
 
         $body = $response->json() ?? [];
-        $orderId = $body['order_id'] ?? $body['orderId'] ?? $body['id'] ?? null;
-        $checkoutUrl = $body['checkout_url'] ?? $body['redirect_url'] ?? $body['redirectUrl'] ?? null;
+        $paymentUrl = $body['payment_url'] ?? null;
 
-        if (! $orderId || ! $checkoutUrl) {
-            Log::error('Payment gateway returned an order we cannot use', [
+        if (! $response->successful() || ! ($body['status'] ?? false) || ! $paymentUrl) {
+            // The message is UddoktaPay's and is safe to record; the key is not.
+            Log::warning('UddoktaPay refused to create a charge', [
                 'reference' => $request->reference,
-                'keys' => array_keys($body),
+                'status' => $response->status(),
+                'message' => $body['message'] ?? null,
             ]);
 
-            throw new RuntimeException('The payment provider returned an unusable order.');
+            throw new RuntimeException(
+                $body['message'] ?? 'The payment provider could not start this payment.',
+            );
         }
 
         return new Charge(
             reference: $request->reference,
-            orderId: (string) $orderId,
-            checkoutUrl: (string) $checkoutUrl,
+            // The token in the checkout URL is all the gateway tells us up front.
+            // It is not the invoice id, so it is stored for logging and for the
+            // "has it started at all" question, not for verification.
+            orderId: $this->tokenFromPaymentUrl((string) $paymentUrl),
+            checkoutUrl: (string) $paymentUrl,
             method: $request->method,
-            expiresAt: isset($body['expires_at'])
-                ? new \DateTimeImmutable((string) $body['expires_at'])
-                : null,
+            expiresAt: null,
         );
     }
 
-    public function verifyCharge(string $orderId, ?string $gatewayReference = null): Verification
+    public function verifyCharge(string $invoiceId): Verification
     {
         $this->assertConfigured();
 
-        $response = $this->client()->get($this->url('verify-payment'), [
-            'api_key' => $this->config['api_key'],
-            'order_id' => $orderId,
-            'reference' => $gatewayReference,
-        ]);
-
-        if (! $response->successful()) {
-            Log::warning('Payment gateway could not be asked about an order', [
-                'order_id' => $orderId,
-                'status' => $response->status(),
-            ]);
-
-            // Unknown is not "not paid". Reporting `paid: false` here would
-            // quietly cancel a payment the customer actually made.
-            return new Verification(paid: false, message: 'The provider could not be reached.');
-        }
+        $response = Http::timeout((int) ($this->config['timeout'] ?? 20))
+            ->withHeaders([
+                'RT-UDDOKTAPAY-API-KEY' => $this->config['api_key'],
+                'Accept' => 'application/json',
+            ])
+            ->asJson()
+            ->post($this->url('api/verify-payment'), ['invoice_id' => $invoiceId]);
 
         $body = $response->json() ?? [];
-        $status = strtoupper((string) ($body['status'] ?? $body['payment_status'] ?? ''));
-        $amount = isset($body['amount']) ? (float) $body['amount'] : null;
+
+        if (! $response->successful()) {
+            Log::warning('UddoktaPay could not be asked about an invoice', [
+                'invoice_id' => $invoiceId,
+                'status' => $response->status(),
+                'message' => $body['message'] ?? null,
+            ]);
+
+            // "Could not ask" is not "not paid". Reporting unpaid here would
+            // quietly cancel a payment the customer actually made.
+            return new Verification(paid: false, message: $body['message'] ?? 'The provider could not be reached.');
+        }
+
+        // UddoktaPay answers HTTP 200 with `status: false` for an invoice it does
+        // not have. That is "invalid", not "not paid yet", and it must not be
+        // logged as a failure — the app is simply asking about an order that was
+        // never completed.
+        if (($body['status'] ?? null) === false) {
+            return new Verification(
+                paid: false,
+                message: (string) ($body['message'] ?? 'Unknown payment.'),
+                invoiceId: $invoiceId,
+                status: 'INVALID',
+            );
+        }
+
+        $status = strtoupper((string) ($body['status'] ?? ''));
+        $charged = $body['charged_amount'] ?? $body['amount'] ?? null;
+        $metadata = is_array($body['metadata'] ?? null) ? $body['metadata'] : [];
 
         return new Verification(
-            paid: in_array($status, ['PAID', 'SUCCESS', 'COMPLETED'], true),
-            gatewayReference: $body['transaction_id'] ?? $body['payment_id'] ?? null,
-            amount: $amount,
-            currency: $body['currency'] ?? null,
-            method: $body['method'] ?? $body['payment_method'] ?? null,
+            paid: in_array($status, self::PAID_STATES, true),
+            gatewayReference: $body['transaction_id'] ?? null,
+            amount: $charged === null ? null : (float) $charged,
+            currency: 'BDT',
+            method: $body['payment_method'] ?? null,
             message: $body['message'] ?? null,
+            // UddoktaPay echoes our own metadata back. This is how a verified
+            // invoice is tied to the payment it belongs to.
+            ourReference: $metadata['transaction_id'] ?? $metadata['reference'] ?? null,
+            invoiceId: $body['invoice_id'] ?? $invoiceId,
+            status: $status,
         );
     }
 
-    public function isAuthenticCallback(string $rawBody, array $headers): bool
+    /**
+     * UddoktaPay does not sign its callbacks, so there is no signature to check
+     * and pretending otherwise would only be theatre. What a callback *is* is a
+     * claim, and this decides whether it is worth spending an API call on: it has
+     * to look like an invoice id and nothing else. The answer still comes from
+     * `verify-payment`, never from the body.
+     */
+    public function isWorthVerifying(array $payload): bool
     {
-        $secret = $this->config['callback_secret'] ?? null;
+        $invoiceId = $payload['invoice_id'] ?? null;
 
-        if (! filled($secret)) {
-            // No shared secret means no way to tell a real callback from a
-            // stranger's POST. Refusing every callback is the safe reading.
-            Log::error('A payment callback arrived with no callback secret configured.');
-
-            return false;
-        }
-
-        // HMAC-SHA256 over the raw body is the usual arrangement; if the gateway
-        // signs a different header, change this and nothing else.
-        $provided = $headers['x-gateway-signature']
-            ?? $headers['x-signature']
-            ?? $headers['signature']
-            ?? null;
-
-        if (! is_string($provided) || $provided === '') {
-            return false;
-        }
-
-        $expected = hash_hmac('sha256', $rawBody, (string) $secret);
-
-        return hash_equals($expected, $provided);
-    }
-
-    private function client()
-    {
-        return Http::timeout((int) ($this->config['timeout'] ?? 20))
-            ->acceptJson()
-            ->asJson();
+        return is_string($invoiceId) && $invoiceId !== '' && strlen($invoiceId) <= 128;
     }
 
     private function url(string $path): string
@@ -162,9 +172,12 @@ class HttpPaymentGateway implements PaymentGateway
         return rtrim((string) $this->config['base_url'], '/') . '/' . ltrim($path, '/');
     }
 
-    private function gatewayMethod(string $method): string
+    private function tokenFromPaymentUrl(string $paymentUrl): string
     {
-        return (string) ($this->config['methods'][$method] ?? $method);
+        $path = parse_url($paymentUrl, PHP_URL_PATH) ?: '';
+        $segments = array_values(array_filter(explode('/', $path)));
+
+        return (string) end($segments);
     }
 
     private function assertConfigured(): void

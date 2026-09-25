@@ -2,7 +2,9 @@
 
 namespace App\Services\Payments;
 
+use App\Models\Customer;
 use App\Models\CustomerPayment;
+use App\Models\Device;
 use App\Models\Installment;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -14,10 +16,10 @@ use RuntimeException;
  * The order of operations is the security property of the whole thing:
  *
  *   1. the payable amount is looked up from the contract, not taken from the phone
- *   2. the order is created at the gateway with our reference
+ *   2. the order is created at the gateway with our reference in its metadata
  *   3. a PENDING row is stored, so the customer has something to ask about
- *   4. SUCCESS is possible *only* here, and only after the gateway has been
- *      asked directly — never from a callback body, never from the app
+ *   4. SUCCESS is possible *only* here, and only after the gateway has been asked
+ *      directly — never from a callback body, never from the app
  *
  * A payment therefore advances because the gateway told us, in answer to our
  * question, that it was paid. The customer's own app has no way to influence
@@ -37,8 +39,12 @@ class PaymentProcessor
      *
      * @return array{paymentId: string, orderId: string, redirectUrl: string, gateway: string, expiresAt: ?string}
      */
-    public function start(object $customer, Installment $installment, string $method, ?float $requestedAmount = null): array
-    {
+    public function start(
+        Customer $customer,
+        Installment $installment,
+        string $method,
+        ?float $requestedAmount = null,
+    ): array {
         $expected = (float) $installment->amount - (float) $installment->paid_amount;
 
         if ($expected <= 0) {
@@ -63,8 +69,16 @@ class PaymentProcessor
             amount: $expected,
             currency: 'BDT',
             method: $method,
-            description: sprintf('Installment %s — Srabon Telecom', $installment->number ?? $installment->id),
+            customerName: (string) ($customer->full_name ?? 'Customer'),
             customerEmail: (string) ($customer->email ?? ''),
+            metadata: [
+                // Echoed back by UddoktaPay on verification. This is the link
+                // between a gateway invoice and the payment it belongs to.
+                'transaction_id' => $reference,
+                'customer_key' => (string) $customer->getKey(),
+                'installment_id' => (string) $installment->id,
+                'installment_number' => (string) $installment->number,
+            ],
         ));
 
         // Stored before the customer is sent anywhere, so an order the gateway
@@ -90,38 +104,54 @@ class PaymentProcessor
     }
 
     /**
-     * Asks the gateway what happened, and records the answer.
+     * Asks the gateway about an invoice, and settles the payment it belongs to.
      *
-     * Called by the callback route *and* by anything that wants to settle a
-     * payment. There is no third way in.
+     * The payment is found from the *verified* response's metadata, not from the
+     * callback: a stranger posting somebody else's invoice id settles nothing,
+     * because the metadata that comes back does not name a payment we hold.
      */
-    public function settleFromGateway(string $paymentId, ?string $gatewayReference = null): CustomerPayment
+    public function settleFromInvoice(string $invoiceId): ?CustomerPayment
     {
-        $payment = CustomerPayment::query()->where('transaction_id', $paymentId)->first();
-
-        if (! $payment) {
-            throw new RuntimeException('That payment is not one of ours.');
-        }
-
-        // Already terminal: a repeated callback must not move it twice.
-        if ($payment->status === 'SUCCESS') {
-            return $payment;
-        }
-
-        $verification = $this->gateway->verifyCharge(
-            (string) ($payment->gateway_order_id ?? $payment->transaction_id),
-            $gatewayReference,
-        );
+        $verification = $this->gateway->verifyCharge($invoiceId);
 
         if (! $verification->paid) {
-            return $payment; // still PENDING; the next callback or check will ask again
+            Log::info('A payment invoice is not paid yet', [
+                'invoice_id' => $invoiceId,
+                'gateway_status' => $verification->status,
+            ]);
+
+            return null;
         }
 
-        // The gateway's own amount has to match what this server asked for.
-        // A gateway that confirms a different figure is not confirming this
-        // order.
+        $reference = $verification->ourReference;
+
+        if (! $reference) {
+            Log::warning('A verified invoice carried no reference of ours', [
+                'invoice_id' => $invoiceId,
+            ]);
+
+            return null;
+        }
+
+        $payment = CustomerPayment::query()->where('transaction_id', $reference)->first();
+
+        if (! $payment) {
+            // Someone else's invoice, played to this endpoint.
+            Log::warning('A verified invoice named a payment we do not hold', [
+                'invoice_id' => $invoiceId,
+            ]);
+
+            return null;
+        }
+
+        if ($payment->status === 'SUCCESS') {
+            return $payment; // a repeated callback must not move it twice
+        }
+
+        // The gateway's own figure has to match what this server asked for.
+        // A gateway confirming a different amount is not confirming this order.
         if ($verification->amount !== null && abs($verification->amount - (float) $payment->amount) > 0.009) {
-            Log::error('Gateway confirmed a different amount than we charged', [
+            Log::error('UddoktaPay confirmed a different amount than we charged', [
                 'payment' => $payment->transaction_id,
                 'gateway_amount' => $verification->amount,
                 'our_amount' => $payment->amount,
@@ -134,6 +164,7 @@ class PaymentProcessor
             'status' => 'SUCCESS',
             'date' => now(),
             'receipt_url' => $verification->gatewayReference,
+            'gateway_order_id' => $verification->invoiceId ?? $payment->gateway_order_id,
         ]);
 
         $this->settleInstallment($payment);
@@ -144,8 +175,8 @@ class PaymentProcessor
     /**
      * Marks the installment paid and releases the device once nothing is owed.
      *
-     * The device state is written here, on the server, from the payment that
-     * was verified. The app never decides that a phone is unlocked.
+     * The device state is written here, on the server, from a payment that was
+     * verified. The app never decides that a phone is unlocked.
      */
     private function settleInstallment(CustomerPayment $payment): void
     {
@@ -171,7 +202,7 @@ class PaymentProcessor
 
         if (! $stillOwed) {
             // Fully paid: the contract is honoured, so the device is released.
-            \App\Models\Device::query()
+            Device::query()
                 ->where('customer_key', $payment->customer_key)
                 ->update(['state' => 'UNLOCKED']);
         }
