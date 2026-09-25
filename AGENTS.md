@@ -213,6 +213,31 @@ pays in the gateway; the app then polls `GET /payments/:id/status` until the
 backend — which verified the gateway callback — reports a terminal state. A
 gateway "success" page is treated as `PENDING`, never `SUCCESS`.
 
+**The gateway key lives on the server, and only on the server.** It is read from
+the backend's environment (`backend/config/payment.php`) and never reaches the
+app: not in `EXPO_PUBLIC_*` (those are inlined into the shipped bundle), not in
+SecureStore, not in AsyncStorage. With a merchant key, anybody who unzips the
+app could create orders no installment backs.
+`__tests__/noSecretsInClient.test.ts` fails the build if a credential-shaped name
+or value ever appears in `src/`, `app/`, `plugins/`, `modules/` or the app
+config, and the backend is the only place `PaymentProcessor` moves a payment to
+SUCCESS.
+
+The chain, in order, all of it server-side:
+
+```
+app → POST /customer/payments/create   (amount re-read from the contract)
+     → gateway createCharge            (order id + checkout URL, no key returned)
+     → customer pays at the gateway
+     → POST /api/gateway/callback      (signature checked, then the gateway is
+                                        *asked* what happened — the body is not
+                                        believed)
+     → settleFromGateway               (only now may a payment become SUCCESS,
+                                        and the installment is marked paid and a
+                                        fully settled plan releases the device)
+     → app polls GET /customer/payments/{id}/status
+```
+
 **Device state.** `DeviceState` always comes from `/devices/me/status`. A missing
 or stale server value surfaces as `null` and is never inferred locally. The
 restriction screen is an ordinary app screen; it does not imitate an Android

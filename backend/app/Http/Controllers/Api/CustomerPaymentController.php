@@ -4,8 +4,13 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CustomerPayment;
+use App\Models\Customer;
+use App\Services\Payments\HttpPaymentGateway;
+use App\Services\Payments\PaymentProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Throwable;
 
 /**
  * Payment orders and status.
@@ -74,22 +79,107 @@ class CustomerPaymentController extends Controller
             )));
         }
 
-        // TODO: create the order with your gateway SDK, then:
-        //   - persist a CustomerPayment row with status PENDING
-        //   - never put a signing key or webhook secret in the response
-        //
-        // return response()->json([
-        //     'paymentId'   => $payment->transaction_id,
-        //     'orderId'     => $gatewayOrderId,
-        //     'redirectUrl' => $gatewayCheckoutUrl,
-        //     'gateway'     => $data['gateway'],
-        //     'expiresAt'   => now()->addMinutes(15)->toIso8601String(),
-        // ]);
+        // The amount above came from the contract, not from the phone. The
+        // gateway is asked to charge *that* figure, with the merchant key held
+        // on this server; the response carries no key, no signature and no
+        // secret back to the customer.
+        try {
+            return response()->json($this->payments()->start(
+                customer: $customer,
+                installment: $installment,
+                method: $data['gateway'],
+                requestedAmount: isset($data['amount']) ? (float) $data['amount'] : null,
+            ));
+        } catch (Throwable $exception) {
+            report($exception);
+
+            // 501 tells the app the provider is not set up, which is different
+            // from 402, which would tell the customer they cannot pay.
+            return response()->json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+            ], 501);
+        }
+    }
+
+    /**
+     * The customer's own record. Read-only about everything that matters: the
+     * enrollment status, the agreement version and the device state are the
+     * server's to report, never the phone's to set.
+     */
+    public function profile(Request $request): JsonResponse
+    {
+        $customer = $request->user();
 
         return response()->json([
-            'status' => 'error',
-            'message' => 'Payment gateway is not configured yet.',
-        ], 501);
+            'id' => $customer->getKey(),
+            'fullName' => $customer->full_name,
+            'email' => $customer->email,
+            'phone' => $customer->phone_number,
+            'language' => $customer->language,
+            'verifiedAt' => $customer->created_at?->toIso8601String(),
+        ]);
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'fullName' => ['sometimes', 'string', 'min:2', 'max:120'],
+            'language' => ['sometimes', Rule::in(['en', 'bn'])],
+        ]);
+
+        $customer = $request->user();
+        $customer->fill(array_filter([
+            'full_name' => $data['fullName'] ?? null,
+            'language' => $data['language'] ?? null,
+        ], fn ($value) => $value !== null))->save();
+
+        return $this->profile($request);
+    }
+
+    public function settings(Request $request): JsonResponse
+    {
+        $customer = $request->user();
+
+        return response()->json([
+            'language' => $customer->language ?? 'en',
+            'pushNotifications' => true,
+            'overdueReminders' => true,
+            'nextDueDate' => $this->nextDueDate($customer),
+            'supportPhone' => config('app.support_phone', '09612-000000'),
+            'agreementVersion' => $customer->agreement_version,
+        ]);
+    }
+
+    public function updateSettings(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'pushNotifications' => ['sometimes', 'boolean'],
+            'overdueReminders' => ['sometimes', 'boolean'],
+            'language' => ['sometimes', Rule::in(['en', 'bn'])],
+        ]);
+
+        $customer = $request->user();
+        if (isset($data['language'])) {
+            $customer->language = $data['language'];
+            $customer->save();
+        }
+
+        return $this->settings($request);
+    }
+
+    private function nextDueDate(Customer $customer): ?string
+    {
+        return $customer->installments()
+            ->where('status', '!=', 'PAID')
+            ->orderBy('due_date')
+            ->value('due_date')
+            ?->toDateString();
+    }
+
+    private function payments(): PaymentProcessor
+    {
+        return new PaymentProcessor(new HttpPaymentGateway(config('payment')));
     }
 
     /**
@@ -135,15 +225,17 @@ class CustomerPaymentController extends Controller
         ];
     }
 
-    /** Ownership is always resolved from the token. */
+    /**
+     * Ownership is always resolved from the token, never from the request: the
+     * installment has to belong to the customer who is asking. This used to
+     * return null for everything, which answered every payment with 404 and hid
+     * the real reason.
+     */
     private function findInstallment(Customer $customer, string $installmentId)
     {
-        // TODO: point at your installment model, scoped by the token's customer.
-        // return Installment::query()
-        //     ->where('id', $installmentId)
-        //     ->where('customer_key', $customer->getKey())
-        //     ->first();
-
-        return null;
+        return \App\Models\Installment::query()
+            ->where('id', $installmentId)
+            ->where('customer_key', $customer->getKey())
+            ->first();
     }
 }
