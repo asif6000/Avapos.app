@@ -52,6 +52,11 @@ const STATIC_DIR = resolve(
   process.env.PROXY_STATIC_DIR ?? (existsSync('dist') ? 'dist' : ''),
 );
 
+/** The admin panel's own build, served at `/admin`. */
+const ADMIN_DIR = resolve(
+  process.env.PROXY_ADMIN_DIR ?? (existsSync('admin/dist') ? 'admin/dist' : ''),
+);
+
 /**
  * The paths the mock answers. Everything else is the app.
  *
@@ -108,14 +113,17 @@ const CONTENT_TYPES = {
   '.svg': 'image/svg+xml',
 };
 
-function serveStatic(request, response, pathname) {
+function serveStatic(request, response, pathname, base = '/', root = STATIC_DIR) {
+  // Everything after the base, so `/admin/anything` is looked up inside the admin
+  // build rather than the app's.
+  const relative = pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
   // `normalize` before joining: a request for `/../../etc/passwd` must not be
   // able to walk out of the directory it is served from.
-  const candidate = join(STATIC_DIR, normalize(pathname).replace(/^(\.\.[/\\])+/, ''));
+  const candidate = join(root, normalize(relative).replace(/^(\.\.[/\\])+/, ''));
   const file =
     existsSync(candidate) && statSync(candidate).isFile()
       ? candidate
-      : join(STATIC_DIR, 'index.html'); // single-page app: unknown paths are routes
+      : join(root, 'index.html'); // single-page app: unknown paths are routes
 
   if (!existsSync(file)) return false;
   const type = CONTENT_TYPES[extname(file)] ?? 'application/octet-stream';
@@ -243,10 +251,29 @@ const SUPERVISE = process.argv.includes('--supervise');
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', `http://${LISTEN_HOST}:${LISTEN_PORT}`).pathname;
 
+  // The admin panel's API. The prefix is separate from `/admin` so it can never
+  // be confused with the panel's own files.
+  if (pathname === '/admin/api' || pathname.startsWith('/admin/api/')) {
+    console.log(`  ${request.method} ${pathname}  ->  admin api`);
+    forward(request, response, `${MOCK_ORIGIN}${request.url.replace('/admin/api', '/admin')}`, { keepHost: true });
+    return;
+  }
+
   if (isMockPath(pathname)) {
     console.log(`  ${request.method} ${pathname}  ->  mock`);
     forward(request, response, `${MOCK_ORIGIN}${request.url}`, { keepHost: true });
     return;
+  }
+
+  // The admin panel, served from its own build on this same origin. A panel on a
+  // different origin could not read a single response, because this API sends no
+  // CORS headers.
+  if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+    const served = request.method === 'GET' && serveStatic(request, response, pathname, '/admin', ADMIN_DIR);
+    if (served) {
+      console.log(`  ${request.method} ${pathname}  ->  admin`);
+      return;
+    }
   }
 
   if (STATIC_DIR && request.method === 'GET' && serveStatic(request, response, pathname)) {

@@ -1,0 +1,21 @@
+/* A reset and a type scale, and nothing else: the panels carry their own styles
+   so a screen is readable as one file. */
+:root {
+  color-scheme: light;
+  --ink: #131918;
+  --canvas: #f6f8f8;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { margin: 0; padding: 0; }
+
+body {
+  background: var(--canvas);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; }
+input, textarea, select { font: inherit; }

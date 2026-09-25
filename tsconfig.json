@@ -17,5 +17,5 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ],
-  "exclude": ["node_modules", "dist", "android", "ios", "modules"]
+  "exclude": ["node_modules", "dist", "android", "ios", "modules", "admin"]
 }

@@ -136,9 +136,37 @@ The shared building blocks, and what they are for:
 | `StatusBadge` | Server-provided state. The dot carries the emphasis, so the text is sentence case |
 | `EmptyState` / `ErrorState` | Nothing to show, and something that failed. `ErrorState` offers sign-out where the customer is signed in, so a broken screen is never a dead end |
 
+## The admin panel
+
+`admin/` is a small React web app served from **`/admin`, on the same origin as
+the customer API** — deliberately, because the API sends no CORS headers, so a
+panel on its own origin could not read a single response. Its API is
+`/admin/api/*`, a separate prefix so a route can never be confused with a file.
+
+It holds **no credential of its own**. A staff member signs in with their own
+Supabase account, exactly as a customer does, and presents that session's JWT.
+`GET /admin/api/me` asks the server who they are; the panel never decides. The
+service-role key is used on the server for the tables an admin needs, which is
+why the panel works today while RLS is still off, and why a laptop with the panel
+open reads nothing without a real staff session.
+
+`backend/app/Http/Middleware/RequireAdmin.php` guards the whole group — a token
+must pass signature verification *and* be staff, checked on every request, with
+the role read from the token's `app_metadata` (which a client cannot write). A
+customer's own token is refused with 403 on every admin route, and a staff token
+is refused on every customer route, because neither session is the other's.
+
+The panel can read, and it can act — but the actions are shaped by what they are:
+releasing a phone or cancelling money needs a reason, every action is written to
+`admin_audit` with who did it, and there is **no way to mark a payment paid**.
+"Ask the gateway" re-runs UddoktaPay's own verification; if the gateway has not
+confirmed, nothing moves. A financing app's ledger is only worth something if the
+money in it is the money that arrived.
+
 ## Layout
 
 ```
+admin/                   web admin panel (React + Vite, served at /admin)
 app/                     expo-router routes
   (auth)/                login (email), register (finish setup)
   (tabs)/                dashboard, installments, device, payments, support

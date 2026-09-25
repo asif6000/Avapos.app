@@ -227,6 +227,12 @@ const gatewayOrders = new Map();
 /** Mutable per-customer app settings, as the settings screen writes them. */
 const appSettings = new Map();
 
+/**
+ * Who did what, and why. An admin can release a phone and ask the gateway about
+ * money, so the trail is part of the feature rather than a nicety.
+ */
+const adminAudit = [];
+
 const supportTickets = [
   {
     id: 'TICK-4029',
@@ -239,6 +245,21 @@ const supportTickets = [
     created_at: '2026-09-10T04:00:00.000Z',
   },
 ];
+
+/**
+ * Staff for the admin panel.
+ *
+ * The mock's admin gate reads the *token*, exactly as `RequireAdmin` does on the
+ * server: the role is in `app_metadata`, which a client cannot write, and the
+ * address is in an allow-list. A customer session presented to `/admin/*` is
+ * refused, and that refusal is the thing worth testing.
+ */
+const DEMO_ADMIN = {
+  email: 'staff@srabontelecom.com',
+  password: 'Passw0rd!1a',
+  role: 'admin',
+};
+const ADMIN_EMAILS = [DEMO_ADMIN.email];
 
 const tables = {
   profiles: SEED_CUSTOMERS,
@@ -309,6 +330,9 @@ function issueSession(user) {
     sub: user.id,
     email: user.email,
     role: 'authenticated',
+    // The admin role travels in the token's app_metadata, which is what
+    // `RequireAdmin` reads and what a client cannot write for itself.
+    app_metadata: isAdmin(user.email) ? { role: DEMO_ADMIN.role } : {},
     aud: 'authenticated',
     exp: Math.floor(Date.now() / 1000) + expiresIn,
     session_id: randomUUID(),
@@ -327,6 +351,42 @@ function actorFor(request) {
   if (!claims) return null;
   if (typeof claims.exp === 'number' && claims.exp * 1000 <= Date.now()) return null;
   return claims;
+}
+
+function isAdmin(email) {
+  return ADMIN_EMAILS.includes(String(email ?? '').toLowerCase());
+}
+
+/**
+ * The mock's `RequireAdmin`: a token has to be verified *and* the account has to
+ * be staff. One message for every refusal, so the panel cannot be used to learn
+ * which addresses are admins.
+ */
+function requireAdmin(request, response) {
+  const claims = actorFor(request);
+  if (!claims) {
+    error(response, 401, 'unauthorized', 'You do not have access to this area.');
+    return null;
+  }
+  const byEmail = isAdmin(claims.email);
+  const byRole = claims.app_metadata?.role === DEMO_ADMIN.role;
+  if (!byEmail && !byRole) {
+    console.log(`  [mock] refused an admin request from ${claims.email} on ${request.url}`);
+    error(response, 403, 'forbidden', 'You do not have access to this area.');
+    return null;
+  }
+  return claims;
+}
+
+function audit(adminEmail, action, subject, reason) {
+  adminAudit.unshift({
+    id: adminAudit.length + 1,
+    admin_email: adminEmail,
+    action,
+    subject,
+    reason: reason ?? null,
+    created_at: new Date().toISOString(),
+  });
 }
 
 function customerForAuthUser(authUid) {
@@ -351,6 +411,22 @@ function seedDemoUser() {
   };
   authUsers.set(DEMO_EMAIL, user);
   customer.auth_uid = user.id;
+}
+
+/**
+ * The staff account for the admin panel.
+ *
+ * Deliberately *not* linked to a customer: a staff member's own session must be
+ * refused by every `/customer` route as firmly as a customer's is refused by
+ * every `/admin` route. One account, one job.
+ */
+function seedAdminUser() {
+  authUsers.set(DEMO_ADMIN.email, {
+    id: randomUUID(),
+    email: DEMO_ADMIN.email,
+    passwordHash: passwordHash(DEMO_ADMIN.email, DEMO_ADMIN.password),
+    sessions: new Set(),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1394,10 +1470,290 @@ function presentInstallment(row) {
   };
 }
 
+/* ==========================================================================
+ The admin panel's API
+
+ The same shape as `backend/app/Http/Controllers/Admin/*`, so the panel can be
+ built and demoed here and pointed at the real API without changing a line of
+ the front end.
+
+ The gate is the part that matters: a verified token is not enough, it also has
+ to be staff. `requireAdmin` reads the role from the token's `app_metadata`,
+ which a client cannot write for itself, and refuses everything else with one
+ message.
+ ========================================================================== */
+
+/** The states an admin may put a phone into, and nothing else. */
+const DEVICE_STATES = [
+'ACTIVE',
+'PAYMENT_DUE',
+'GRACE_PERIOD',
+'RESTRICTED',
+'UNLOCKED',
+'SUSPENDED',
+];
+
+const presentAdminCustomer = (c) => ({
+id: c.id,
+fullName: c.full_name,
+email: c.email,
+phone: c.phone_number,
+language: c.language,
+enrolled: Boolean(c.is_enrolled),
+createdAt: c.created_at,
+});
+
+const presentAdminDevice = (d) => ({
+id: d.id,
+customerKey: d.customer_key,
+name: d.device_name,
+manufacturer: d.manufacturer,
+model: d.model,
+androidVersion: d.android_version,
+state: d.state,
+enrollmentStatus: d.enrollment_status,
+managementStatus: d.management_status,
+isManaged: Boolean(d.is_managed),
+contractId: d.contract_id,
+lastSyncAt: d.last_sync_time,
+});
+
+const presentAdminPayment = (row) => ({
+id: row.transaction_id,
+customerKey: row.customer_key,
+installmentNumber: row.installment_number,
+amount: row.amount,
+status: row.status,
+method: row.payment_method,
+gatewayReference: row.gateway_order_id ?? null,
+paidAt: row.date,
+createdAt: row.created_at,
+});
+
+const presentAdminInstallment = (i) => ({
+id: i.id,
+number: i.number,
+amount: i.amount,
+paidAmount: i.paid_amount,
+outstanding: Math.max(0, i.amount - i.paid_amount),
+status: i.status,
+dueDate: i.due_date,
+paidAt: i.paid_at,
+});
+
+const presentAdminTicket = (t) => ({
+id: t.id,
+customerKey: t.customer_key,
+subject: t.subject,
+message: t.message,
+category: t.category,
+status: t.status,
+response: t.admin_response,
+createdAt: t.created_at,
+});
+
+async function handleAdmin(request, response, url, method, body) {
+const claims = requireAdmin(request, response);
+if (!claims) return undefined;
+const path = url.pathname.replace(/^\/admin/, '') || '/';
+
+if (path === '/me' && method === 'GET') {
+  return json(response, 200, {
+    email: claims.email,
+    role: claims.app_metadata?.role ?? 'allow-list',
+    canWrite: true,
+  });
+}
+
+if (path === '/dashboard' && method === 'GET') {
+  const states = {};
+  for (const d of devices) states[d.state] = (states[d.state] ?? 0) + 1;
+  return json(response, 200, {
+    customers: SEED_CUSTOMERS.length,
+    devices: devices.length,
+    restrictedDevices: devices.filter((d) => ['RESTRICTED', 'SUSPENDED'].includes(d.state)).length,
+    openTickets: supportTickets.filter((t) => t.status === 'OPEN').length,
+    pendingPayments: payments.filter((p) => p.status === 'PENDING').length,
+    outstandingAmount: installments
+      .filter((i) => i.status !== 'PAID')
+      .reduce((sum, i) => sum + Math.max(0, i.amount - i.paid_amount), 0),
+    recentPayments: [...payments]
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .slice(0, 8)
+      .map(presentAdminPayment),
+    deviceStates: states,
+  });
+}
+
+if (path === '/customers' && method === 'GET') {
+  const term = String(url.searchParams.get('q') ?? '').trim().toLowerCase();
+  const items = SEED_CUSTOMERS.filter((c) =>
+    !term
+      ? true
+      : [c.full_name, c.email, c.phone_number, c.id].some((field) =>
+          String(field ?? '').toLowerCase().includes(term),
+        ),
+  );
+  return json(response, 200, { items: items.map(presentAdminCustomer), total: SEED_CUSTOMERS.length });
+}
+
+const customerMatch = /^\/customers\/([^/]+)$/.exec(path);
+if (customerMatch && method === 'GET') {
+  const customer = SEED_CUSTOMERS.find((c) => c.id === decodeURIComponent(customerMatch[1]));
+  if (!customer) return error(response, 404, 'not_found', 'No such customer.');
+  const plan = installments.filter((i) => i.customer_key === customer.id);
+  const device = devices.find((d) => d.customer_key === customer.id) ?? null;
+  const paid = plan.reduce((sum, i) => sum + i.paid_amount, 0);
+  const total = plan.reduce((sum, i) => sum + i.amount, 0);
+  return json(response, 200, {
+    customer: presentAdminCustomer(customer),
+    device: device ? presentAdminDevice(device) : null,
+    installments: plan.map(presentAdminInstallment),
+    payments: payments.filter((p) => p.customer_key === customer.id).map(presentAdminPayment),
+    tickets: supportTickets.filter((t) => t.customer_key === customer.id).map(presentAdminTicket),
+    totals: {
+      totalPrice: total,
+      paidAmount: paid,
+      outstandingAmount: Math.max(0, total - paid),
+      paidInstallments: plan.filter((i) => i.status === 'PAID').length,
+      totalInstallments: plan.length,
+    },
+  });
+}
+
+if (path === '/payments' && method === 'GET') {
+  const status = url.searchParams.get('status');
+  const customer = url.searchParams.get('customer');
+  return json(response, 200, {
+    items: payments
+      .filter((p) => (!status || p.status === status) && (!customer || p.customer_key === customer))
+      .map(presentAdminPayment),
+  });
+}
+
+if (path === '/devices' && method === 'GET') {
+  const state = url.searchParams.get('state');
+  return json(response, 200, {
+    items: devices.filter((d) => !state || d.state === state).map(presentAdminDevice),
+  });
+}
+
+if (path === '/tickets' && method === 'GET') {
+  const status = url.searchParams.get('status');
+  return json(response, 200, {
+    items: supportTickets.filter((t) => !status || t.status === status).map(presentAdminTicket),
+  });
+}
+
+if (path === '/notifications' && method === 'GET') {
+  return json(response, 200, {
+    items: [...notifications]
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+      .map((n) => ({
+        id: n.id,
+        customerKey: n.customer_key,
+        type: n.type,
+        title: n.title,
+        message: n.message,
+        isRead: Boolean(n.is_read),
+        createdAt: n.created_at,
+      })),
+  });
+}
+
+if (path === '/audit' && method === 'GET') {
+  return json(response, 200, { items: adminAudit.slice(0, 50) });
+}
+
+// ---- actions ------------------------------------------------------------
+
+const reverifyMatch = /^\/payments\/([^/]+)\/reverify$/.exec(path);
+if (reverifyMatch && method === 'POST') {
+  const payment = payments.find((p) => p.transaction_id === decodeURIComponent(reverifyMatch[1]));
+  if (!payment) return error(response, 404, 'not_found', 'No such payment.');
+
+  // Exactly as on the server: ask the gateway, and record only its answer.
+  // There is deliberately no way to mark a payment paid from here.
+  const order = [...gatewayOrders.values()].find((o) => o.paymentId === payment.transaction_id);
+  const confirmed = order?.settled === 'SUCCESS';
+  if (confirmed) settlePayment(order, 'SUCCESS');
+  audit(claims.email, 'payment.reverify', payment.transaction_id, body.reason ?? null);
+
+  return json(response, 200, {
+    status: 'ok',
+    payment: { id: payment.transaction_id, status: payment.status },
+    message: confirmed
+      ? 'The gateway confirmed this payment and it is now recorded.'
+      : 'The gateway has not confirmed this payment yet. Nothing was changed.',
+  });
+}
+
+const stateMatch = /^\/devices\/([^/]+)\/state$/.exec(path);
+if (stateMatch && method === 'POST') {
+  const device = devices.find((d) => d.id === decodeURIComponent(stateMatch[1]));
+  if (!device) return error(response, 404, 'not_found', 'No such device.');
+  if (!DEVICE_STATES.includes(body.state)) {
+    return error(response, 422, 'validation', 'Unknown device state.');
+  }
+  // A reason is required, not optional: "unlock this phone" without one is an
+  // opinion with a button.
+  if (!body.reason || String(body.reason).trim().length < 4) {
+    return error(response, 422, 'validation', 'A reason is required.');
+  }
+  const from = device.state;
+  device.state = body.state;
+  device.last_sync_time = now;
+  audit(claims.email, 'device.state', device.id, String(body.reason), { from, to: body.state });
+  return json(response, 200, { status: 'ok', device: presentAdminDevice(device) });
+}
+
+const replyMatch = /^\/tickets\/([^/]+)\/reply$/.exec(path);
+if (replyMatch && method === 'POST') {
+  const ticket = supportTickets.find((t) => t.id === decodeURIComponent(replyMatch[1]));
+  if (!ticket) return error(response, 404, 'not_found', 'No such ticket.');
+  if (!body.response || String(body.response).trim().length < 2) {
+    return error(response, 422, 'validation', 'A reply is required.');
+  }
+  ticket.admin_response = String(body.response);
+  ticket.status = body.status === 'OPEN' ? 'OPEN' : 'RESOLVED';
+  audit(claims.email, 'ticket.reply', ticket.id, String(body.response));
+  return json(response, 200, { status: 'ok', id: ticket.id });
+}
+
+if (path === '/notifications' && method === 'POST') {
+  if (!body.customerKey || !body.title || !body.message) {
+    return error(response, 422, 'validation', 'A customer, a title and a message are required.');
+  }
+  if (!SEED_CUSTOMERS.some((c) => c.id === body.customerKey)) {
+    return error(response, 404, 'not_found', 'No such customer.');
+  }
+  const id = `notif-${randomUUID().slice(0, 8)}`;
+  notifications.unshift({
+    id,
+    customer_key: body.customerKey,
+    type: body.type ?? 'GENERAL',
+    title: body.title,
+    message: body.message,
+    is_read: false,
+    reference_id: null,
+    created_at: now,
+  });
+  audit(claims.email, 'notification.send', id, body.title);
+  return json(response, 200, { status: 'ok', id });
+}
+
+return error(response, 404, 'not_found', 'Not Found');
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
 
   // -------------------------------------------------------------------------
+  // The admin panel's API, in the same shape as the Laravel controllers.
+  if (url.pathname === '/admin' || url.pathname.startsWith('/admin/')) {
+    return handleAdmin(request, response, url, request.method ?? 'GET', await readBody(request));
+  }
+
   // The simulated gateway
 //
 // This is what a real bKash/Nagad page does, minus the money: it shows the
@@ -1495,6 +1851,7 @@ const server = createServer(async (request, response) => {
 });
 
 seedDemoUser();
+seedAdminUser();
 
 /**
  * `--supervise` restarts the mock if it exits.
@@ -1567,5 +1924,7 @@ server.listen(PORT, HOST, () => {
   console.log('');
   console.log('  Sign in with  asifghe78@gmail.com  /  Passw0rd!   (seeded)');
   console.log('  or create a new account with any address.');
+  console.log('');
+  console.log(`  Admin panel    ${DEMO_ADMIN.email}  /  ${DEMO_ADMIN.password}`);
   console.log('');
 });
