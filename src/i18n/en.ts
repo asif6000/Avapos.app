@@ -181,6 +181,8 @@ export const en = {
     failedBody: 'The payment was not completed. No money was taken.',
     pending: 'Payment pending',
     pendingBody: 'We have not received confirmation yet. We will update you shortly.',
+    gatewayNotOpened: 'The payment window did not open, so nothing was charged. Open it again to pay.',
+    openGateway: 'Open payment window',
     checkStatus: 'CHECK STATUS',
     tryAgain: 'TRY AGAIN',
     history: 'Payment history',

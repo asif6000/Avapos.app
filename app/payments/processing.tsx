@@ -22,6 +22,7 @@ export default function PaymentProcessingScreen() {
   const router = useRouter();
   const { paymentId } = useLocalSearchParams<{ paymentId: string }>();
   const session = usePaymentFlowStore((state) => state.session);
+  const markGatewayNotOpened = usePaymentFlowStore((state) => state.markGatewayNotOpened);
   const clear = usePaymentFlowStore((state) => state.clear);
   const started = useRef(false);
 
@@ -33,8 +34,12 @@ export default function PaymentProcessingScreen() {
       if (session) {
         const result = await paymentService.openGateway(session);
         if (!result.opened) {
+          // The order is still live and no money has moved, so this is not a
+          // failed payment. The pending screen explains that and can open the
+          // gateway again.
+          markGatewayNotOpened();
           clear();
-          router.replace({ pathname: '/payments/failed', params: { paymentId } });
+          router.replace({ pathname: '/payments/pending', params: { paymentId } });
           return;
         }
       }
@@ -51,7 +56,7 @@ export default function PaymentProcessingScreen() {
     };
 
     void run();
-  }, [paymentId, router, session, clear]);
+  }, [paymentId, router, session, clear, markGatewayNotOpened]);
 
   return (
     <Screen>

@@ -216,6 +216,14 @@ const notifications = [
 // accepts anything.
 const agreements = new Map();
 
+/**
+ * Orders handed to the simulated gateway. A gateway is a *different* system from
+ * the customer API, so its orders live here and its callback is a separate route
+ * — the app can only ever see the result through `GET /payments/:id/status`,
+ * which reports what this server recorded.
+ */
+const gatewayOrders = new Map();
+
 /** Mutable per-customer app settings, as the settings screen writes them. */
 const appSettings = new Map();
 
@@ -371,6 +379,24 @@ function json(response, status, body, extraHeaders = {}) {
 
 function error(response, status, code, message) {
   json(response, status, { code, error_code: code, msg: message, message });
+}
+
+/** An HTML response, for the simulated gateway page. */
+function html(response, status, body) {
+  response.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'no-store',
+  });
+  response.end(body);
+}
+
+/**
+ * The origin the *customer* used, so the gateway hand-off comes back through
+ * the tunnel rather than a loopback address the phone cannot reach.
+ */
+function originFor(request) {
+  return `http://${request.headers.host ?? `127.0.0.1:${PORT}`}`;
 }
 
 function readBody(request) {
@@ -1033,12 +1059,28 @@ async function handleCustomer(request, response, url) {
     };
     payments.push(payment);
 
+    const orderId = `ORDER-${randomUUID().slice(0, 6).toUpperCase()}`;
+    const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+    gatewayOrders.set(orderId, {
+      orderId,
+      paymentId: payment.transaction_id,
+      customerId: customer.id,
+      installmentId: installment.id,
+      amount: expected,
+      gateway: body.gateway ?? 'bkash',
+      createdAt: now,
+      expiresAt,
+      settled: null,
+    });
+
+    // A real gateway page on this same origin, not `about:blank`: the customer
+    // has to see an amount and a method before any money moves.
     return json(response, 200, {
       paymentId: payment.transaction_id,
-      orderId: `ORDER-${randomUUID().slice(0, 6).toUpperCase()}`,
-      redirectUrl: 'about:blank',
-      gateway: 'bkash',
-      expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      orderId,
+      redirectUrl: `${originFor(request)}/gateway/${orderId}`,
+      gateway: body.gateway ?? 'bkash',
+      expiresAt,
     });
   }
 
@@ -1091,6 +1133,57 @@ function requireCustomer(request, response) {
     return null;
   }
   return customer;
+}
+
+/**
+ * Records a verified gateway result — the mock's stand-in for the callback a
+ * real integration would receive and verify.
+ *
+ * Everything the app then believes comes from here and from
+ * `GET /payments/:id/status`; nothing the phone says can move a payment on its
+ * own. The installment is marked paid, and a fully settled plan releases the
+ * device, because that is the whole point of the financing model.
+ */
+function settlePayment(order, status) {
+  if (order.settled) return order;
+  const payment = payments.find((p) => p.transaction_id === order.paymentId);
+  if (!payment) return order;
+
+  payment.status = status;
+  payment.date = now;
+  order.settled = status;
+
+  const installment = installments.find((i) => i.id === order.installmentId);
+  if (installment && status === 'SUCCESS') {
+    installment.paid_amount = installment.amount;
+    installment.status = 'PAID';
+    installment.paid_at = now;
+  }
+
+  if (status === 'SUCCESS') {
+    const plan = installments.filter((i) => i.customer_key === order.customerId);
+    const settled = plan.every((i) => i.status === 'PAID');
+    const device = devices.find((d) => d.customer_key === order.customerId);
+    if (device) {
+      device.state = settled ? 'UNLOCKED' : device.state === 'RESTRICTED' ? 'PAYMENT_DUE' : device.state;
+    }
+    notifications.unshift({
+      id: `notif-${randomUUID().slice(0, 8)}`,
+      customer_key: order.customerId,
+      type: 'PAYMENT_SUCCESSFUL',
+      title: 'Payment received',
+      message: `We received your payment of ৳${order.amount.toLocaleString('en-US')}. Thank you.`,
+      is_read: false,
+      reference_id: order.paymentId,
+      created_at: now,
+    });
+  }
+
+  console.log(
+    `  [mock] gateway callback: ${order.paymentId} settled ${status} ` +
+      `(৳${order.amount.toLocaleString('en-US')}) — stand-in for a verified callback`,
+  );
+  return order;
 }
 
 function presentCustomer(customer) {
@@ -1189,6 +1282,108 @@ function presentInstallment(row) {
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://${request.headers.host}`);
 
+  // -------------------------------------------------------------------------
+  // The simulated gateway
+//
+// This is what a real bKash/Nagad page does, minus the money: it shows the
+// amount and the method, the customer confirms, and only then does this server
+// record a verified result. It exists so the app's real hand-off — order,
+// gateway, callback, status poll — can be exercised end to end without a
+// gateway account. The callback route below is the stand-in for the signature
+// check a real integration performs.
+// ---------------------------------------------------------------------------
+
+if (/^\/gateway\/[^/]+$/.test(url.pathname) && request.method === 'GET') {
+  const order = gatewayOrders.get(url.pathname.split('/')[2]);
+  if (!order) return error(response, 404, 'not_found', 'That order has expired.');
+
+  return html(
+    response,
+    200,
+    `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${order.gateway.toUpperCase()} — simulated payment</title>
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #f6f8f8; color: #131918;
+             display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; }
+      .card { background: #fff; border: 1px solid #e4edea; border-radius: 20px; padding: 24px;
+              max-width: 380px; width: 100%; box-shadow: 0 8px 24px rgba(16,20,20,0.08); }
+      h1 { font-size: 18px; margin: 0 0 4px; }
+      .amount { font-size: 34px; font-weight: 800; letter-spacing: -1px; margin: 12px 0 20px; }
+      .row { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #eef3f1;
+             color: #3f4947; font-size: 14px; }
+      button { display: block; width: 100%; margin-top: 12px; padding: 15px; font-size: 16px; font-weight: 700;
+               border-radius: 999px; border: 0; cursor: pointer; }
+      .pay { background: #0b6b5b; color: #fff; }
+      .cancel { background: transparent; color: #3f4947; }
+      .note { font-size: 12px; color: #6f7977; margin-top: 16px; }
+    </style>
+  </head>
+  <body>
+    <form class="card" method="POST" action="/gateway/${order.orderId}/confirm">
+      <h1>${order.gateway.toUpperCase()} (simulated)</h1>
+      <div class="amount">৳${order.amount.toLocaleString('en-US')}</div>
+      <div class="row"><span>Merchant</span><span>Srabon Telecom</span></div>
+      <div class="row"><span>Order</span><span>${order.orderId}</span></div>
+      <div class="row"><span>Reference</span><span>${order.paymentId}</span></div>
+      <button class="pay" type="submit">Pay ৳${order.amount.toLocaleString('en-US')}</button>
+    </form>
+    <form class="card" style="border:0; box-shadow:none; background:transparent" method="POST" action="/gateway/${order.orderId}/cancel">
+      <button class="cancel" type="submit">Cancel</button>
+    </form>
+    <p class="note" style="text-align:center; width:100%">
+      This is the local mock's stand-in for a gateway page. No money moves. The
+      payment is only marked paid after this server records the callback.
+    </p>
+  </body>
+</html>`,
+  );
+}
+
+if (/^\/gateway\/[^/]+\/confirm$/.test(url.pathname) && request.method === 'POST') {
+  const order = gatewayOrders.get(url.pathname.split('/')[2]);
+  if (!order) return error(response, 404, 'not_found', 'That order has expired.');
+  settlePayment(order, 'SUCCESS');
+  return html(
+    response,
+    200,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Payment complete</title>
+    <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f8f8;color:#131918;
+      display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;text-align:center}
+      .card{background:#fff;border:1px solid #e4edea;border-radius:20px;padding:28px;max-width:360px}
+      h1{font-size:20px;margin:0 0 8px} p{color:#3f4947;margin:0 0 20px}</style></head>
+    <body><div class="card"><h1>Payment received</h1>
+    <p>৳${order.amount.toLocaleString('en-US')} has been recorded against ${order.paymentId}.</p>
+    <p>You can close this window and return to the app.</p></div></body></html>`,
+  );
+}
+
+if (/^\/gateway\/[^/]+\/cancel$/.test(url.pathname) && request.method === 'POST') {
+  const order = gatewayOrders.get(url.pathname.split('/')[2]);
+  if (!order) return error(response, 404, 'not_found', 'That order has expired.');
+  // Cancelling at the gateway is not a declined payment: the order simply never
+  // completes, and the status endpoint keeps reporting PENDING.
+  return html(
+    response,
+    200,
+    `<!doctype html><html lang="en"><head><meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cancelled</title>
+    <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f8f8;color:#131918;
+      display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;text-align:center}
+      .card{background:#fff;border:1px solid #e4edea;border-radius:20px;padding:28px;max-width:360px}
+      h1{font-size:20px;margin:0 0 8px} p{color:#3f4947;margin:0 0 20px}</style></head>
+    <body><div class="card"><h1>Cancelled</h1>
+    <p>No money was taken. ${order.paymentId} is still pending and can be paid again.</p></div></body></html>`,
+  );
+}
+
+
   if (request.method === 'OPTIONS') {
     return json(response, 204, {});
   }
@@ -1249,6 +1444,21 @@ if (process.argv.includes('--supervise') && process.env.MOCK_CHILD !== '1') {
   }
   runChild();
 }
+server.on('error', (err) => {
+  console.error(`  [mock] server error: ${err.message}`);
+  // A busy port is worth waiting for — usually a previous instance shutting
+  // down — rather than exiting into the supervisor's restart loop.
+  if (err.code === 'EADDRINUSE') {
+    console.error(`  [mock] port ${PORT} is busy — retrying in 2s.`);
+    setTimeout(() => server.listen(PORT, HOST), 2000);
+    return;
+  }
+  if (err.code === 'EACCES') {
+    console.error(`  [mock] not allowed to bind ${PORT}.`);
+    process.exit(1);
+  }
+});
+
 server.listen(PORT, HOST, () => {
   const reachable = lanAddresses();
 

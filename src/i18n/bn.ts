@@ -187,6 +187,8 @@ export const bn: Localized<TranslationSchema> = {
     failedBody: 'পেমেন্ট সম্পন্ন হয়নি। কোনো টাকা কাটা হয়নি।',
     pending: 'পেমেন্ট অপেক্ষমাণ',
     pendingBody: 'এখনো নিশ্চিতকরণ পাইনি। শীঘ্রই জানানো হবে।',
+    gatewayNotOpened: 'পেমেন্ট উইন্ডো খোলেনি, তাই কোনো টাকা কাটা হয়নি। পেমেন্ট করতে আবার খুলুন।',
+    openGateway: 'পেমেন্ট উইন্ডো খুলুন',
     checkStatus: 'অবস্থা যাচাই করুন',
     tryAgain: 'আবার চেষ্টা',
     history: 'পেমেন্ট ইতিহাস',

@@ -52,8 +52,15 @@ const STATIC_DIR = resolve(
   process.env.PROXY_STATIC_DIR ?? (existsSync('dist') ? 'dist' : ''),
 );
 
-/** The paths the mock answers. Everything else is the app. */
-const MOCK_PREFIXES = ['/auth/v1', '/rest/v1', '/customer'];
+/**
+ * The paths the mock answers. Everything else is the app.
+ *
+ * `/gateway` is the simulated bKash/Nagad page: it lives on the same origin as
+ * the app so the hand-off needs no CORS and no absolute host of its own, and it
+ * has to come back through here or the customer would be sent to the mock's
+ * loopback address, which their phone cannot reach.
+ */
+const MOCK_PREFIXES = ['/auth/v1', '/rest/v1', '/customer', '/gateway'];
 
 if (process.env.NODE_ENV === 'production') {
   console.error('Refusing to start: the dev proxy must never run in production.');
@@ -120,7 +127,11 @@ function serveStatic(request, response, pathname) {
       .on('data', (chunk) => chunks.push(chunk))
       .on('end', () => {
         const body = Buffer.from(stamped(Buffer.concat(chunks).toString('utf8')));
-        response.writeHead(200, { 'Content-Type': type, 'content-length': body.length, 'cache-control': 'no-store' });
+        response.writeHead(200, {
+          'Content-Type': type,
+          'content-length': body.length,
+          'cache-control': 'no-store',
+        });
         response.end(body);
       });
     return true;
@@ -131,14 +142,31 @@ function serveStatic(request, response, pathname) {
   return true;
 }
 
-function forward(request, response, target, { stripOrigin = false } = {}) {
+function forward(request, response, target, { stripOrigin = false, keepHost = false } = {}) {
+  const headers = { ...request.headers };
+
+  // Body framing belongs to the upstream response, not to the request the
+  // browser happened to send. Forwarding the caller's `content-length` makes a
+  // reply with a different length fail to parse.
+  delete headers['content-length'];
+  delete headers['transfer-encoding'];
+  delete headers['accept-encoding'];
+
   const upstream = httpRequest(
     target,
     {
       method: request.method,
       // Forwarded verbatim: the Authorization header is the Supabase session JWT
       // the mock validates, and dropping it would make every call anonymous.
-      headers: { ...request.headers, host: new URL(target).host },
+      //
+      // The mock keeps the caller's `Host`, because it builds the gateway
+      // redirect URL from it — that URL has to point back at the origin the
+      // customer is actually on (the tunnel), not at the mock's own port. The app
+      // server gets the upstream host instead, which is what it expects.
+      headers: {
+        ...headers,
+        host: keepHost ? (request.headers.host ?? new URL(target).host) : new URL(target).host,
+      },
     },
     (response_) => {
       const headers = { ...response_.headers };
@@ -164,6 +192,9 @@ function forward(request, response, target, { stripOrigin = false } = {}) {
         response_.on('end', () => {
           if (response.writableEnded) return;
           const body = Buffer.from(bustBundleStamp(Buffer.concat(chunks).toString('utf8')));
+          // Exactly one framing header, or a client that trusts
+          // `content-length` will reject a chunked body of the same bytes.
+          delete headers['transfer-encoding'];
           headers['content-length'] = String(body.length);
           // The page must not be cached either, or the stamp never arrives.
           headers['cache-control'] = 'no-store';
@@ -174,6 +205,10 @@ function forward(request, response, target, { stripOrigin = false } = {}) {
       }
 
       if (stripOrigin) headers['cache-control'] = 'no-store';
+      // The upstream's framing travels with the body; the proxy is not
+      // re-encoding anything, so it must not add a second opinion about length.
+      delete headers['content-length'];
+      delete headers['transfer-encoding'];
       response.writeHead(response_.statusCode ?? 502, headers);
       pipeline(response_, response, () => undefined);
     },
@@ -210,7 +245,7 @@ const server = createServer((request, response) => {
 
   if (isMockPath(pathname)) {
     console.log(`  ${request.method} ${pathname}  ->  mock`);
-    forward(request, response, `${MOCK_ORIGIN}${request.url}`);
+    forward(request, response, `${MOCK_ORIGIN}${request.url}`, { keepHost: true });
     return;
   }
 

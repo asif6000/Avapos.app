@@ -7,15 +7,6 @@ import InstallmentsScreen from '../app/(tabs)/installments';
 import NotificationsScreen from '../app/notifications/index';
 import PaymentsScreen from '../app/(tabs)/payments';
 import SupportScreen from '../app/(tabs)/support';
-import {
-  useDevice,
-  useDeviceStatus,
-  useInstallmentPlan,
-  useMarkAllNotificationsRead,
-  usePayments,
-  useSyncDevice,
-  useTickets,
-} from '@/hooks/queries';
 import { lightTheme } from '@/theme/theme';
 
 /**

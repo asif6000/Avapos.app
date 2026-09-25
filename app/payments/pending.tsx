@@ -9,6 +9,8 @@ import { Screen } from '@/components/Screen';
 import { SectionCard } from '@/components/SectionCard';
 import { usePayment } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { paymentService } from '@/services/payments';
+import { usePaymentFlowStore } from '@/store/paymentFlowStore';
 import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 export default function PaymentPendingScreen() {
@@ -18,7 +20,23 @@ export default function PaymentPendingScreen() {
   const router = useRouter();
   const { paymentId } = useLocalSearchParams<{ paymentId: string }>();
   const { refetch, isFetching, data } = usePayment(paymentId);
+  const gatewayNotOpened = usePaymentFlowStore((state) => state.gatewayNotOpened);
+  const clear = usePaymentFlowStore((state) => state.clear);
   const [checked, setChecked] = useState(false);
+  const [reopening, setReopening] = useState(false);
+
+  /** The order is still live: the customer can be taken to the gateway again. */
+  const reopenGateway = async () => {
+    const session = usePaymentFlowStore.getState().session;
+    if (!session) return;
+    setReopening(true);
+    const result = await paymentService.openGateway(session);
+    setReopening(false);
+    if (result.opened) {
+      clear();
+      router.replace({ pathname: '/payments/processing', params: { paymentId } });
+    }
+  };
 
   const checkStatus = async () => {
     setChecked(true);
@@ -40,7 +58,7 @@ export default function PaymentPendingScreen() {
             {t('payments.pending')}
           </Text>
           <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
-            {t('payments.pendingBody')}
+            {gatewayNotOpened ? t('payments.gatewayNotOpened') : t('payments.pendingBody')}
           </Text>
           {checked ? (
             <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
@@ -49,11 +67,23 @@ export default function PaymentPendingScreen() {
           ) : null}
         </SectionCard>
 
+        {gatewayNotOpened ? (
+          <AppButton
+            block
+            loading={reopening}
+            onPress={() => void reopenGateway()}
+            testID="payment-pending-reopen"
+            label={t('payments.openGateway')}
+          />
+        ) : null}
+
         <AppButton
+          block
           loading={isFetching}
           onPress={() => void checkStatus()}
           testID="payment-pending-check"
-         label={t('payments.checkStatus')} />
+          label={t('payments.checkStatus')}
+        />
         <AppButton variant="text" onPress={() => router.replace('/(tabs)')} label={t('common.done')} />
       </ScrollView>
     </Screen>
