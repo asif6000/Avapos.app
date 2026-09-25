@@ -12,6 +12,7 @@ import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useInstallmentPlan } from '@/hooks/queries';
 import { useInstallmentSource } from '@/hooks/useDataSources';
 import { useTranslation } from '@/hooks/useTheme';
+import { useAuthStore } from '@/store/authStore';
 import { formatCurrency, formatDate, percentOf } from '@/utils/format';
 import type { InstallmentStatus } from '@/types/domain';
 
@@ -26,6 +27,7 @@ const STATUS_TONES: Record<InstallmentStatus, BadgeTone> = {
 export default function InstallmentsScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
   const planQuery = useInstallmentPlan();
   const schedule = useInstallmentSource();
@@ -53,7 +55,7 @@ export default function InstallmentsScreen() {
           <ListSkeleton count={4} />
         </ScrollView>
       ) : error && error.kind !== 'network' ? (
-        <ErrorState message={error.message} onRetry={refresh} />
+        <ErrorState message={error.message} onRetry={refresh} onSignOut={() => void signOut()} />
       ) : (
         <ScrollView
           contentContainerStyle={styles.content}

@@ -169,4 +169,23 @@ describe('Dashboard screen', () => {
 
     await waitFor(() => expect(view.getByText('Srabon Telecom')).toBeTruthy());
   });
+  it('offers a way out when the screen fails, and keeps the header action', async () => {
+    // A customer stuck on a failed screen used to have no way to sign out: the
+    // header action that reaches Settings was only rendered with real content,
+    // so a broken dashboard removed the only route to it.
+    useDashboard.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isRefetching: false,
+      error: { kind: 'network', message: 'Unable to reach our servers. Please try again.' },
+      refetch: jest.fn(),
+    });
+
+    const view = await renderScreen();
+
+    expect(await view.findByText('Unable to reach our servers. Please try again.')).toBeTruthy();
+    expect(view.getByTestId('error-sign-out')).toBeTruthy();
+    // Settings stays one tap away, because that is where Sign out lives.
+    expect(view.getByLabelText('Notifications')).toBeTruthy();
+  });
 });

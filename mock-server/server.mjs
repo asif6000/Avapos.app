@@ -43,9 +43,11 @@
  * Sign in with asifghe78@gmail.com / Passw0rd!
  */
 
+import { spawn } from 'node:child_process';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.MOCK_PORT ?? 4000);
 const HOST = process.env.MOCK_HOST ?? '127.0.0.1';
@@ -968,6 +970,35 @@ const server = createServer(async (request, response) => {
 
 seedDemoUser();
 
+/**
+ * `--supervise` restarts the mock if it exits.
+ *
+ * The supervisor is a *parent* that holds no port, because the process that
+ * does is the one that can be killed by a signal no handler can catch — a
+ * same-process `exit` hook would never run. A dev stack served to a phone
+ * through a tunnel should not go quiet just because one connection was dropped.
+ * Development only, like everything else in this file.
+ */
+if (process.argv.includes('--supervise') && process.env.MOCK_CHILD !== '1') {
+  const runChild = () => {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+      stdio: 'inherit',
+      env: { ...process.env, MOCK_CHILD: '1' },
+    });
+    child.on('exit', (code, signal) => {
+      if (signal === 'SIGTERM' || signal === 'SIGINT' || code === 0) {
+        process.exit(code ?? 0);
+      }
+      console.error(`  mock stopped (${signal ?? `exit ${code}`}) — restarting in 1s.`);
+      setTimeout(runChild, 1000);
+    });
+  };
+
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.on(signal, () => process.exit(0));
+  }
+  runChild();
+}
 server.listen(PORT, HOST, () => {
   const reachable = lanAddresses();
 

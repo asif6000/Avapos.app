@@ -8,11 +8,13 @@ import { ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useInstallment } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { useAuthStore } from '@/store/authStore';
 import { formatCurrency, formatDate, formatRelativeDue } from '@/utils/format';
 
 export default function InstallmentDetailScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const signOut = useAuthStore((state) => state.signOut);
   const { id } = useLocalSearchParams<{ id: string }>();
   const { data, isLoading, error, refetch } = useInstallment(id);
 
@@ -28,7 +30,7 @@ export default function InstallmentDetailScreen() {
           <ListSkeleton count={2} />
         </View>
       ) : error ? (
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
+        <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       ) : data ? (
         <ScrollView contentContainerStyle={styles.content}>
           <SectionCard>

@@ -43,12 +43,30 @@ npm run dev:mock:proxy      # terminal 2 — dev proxy on :8081 (mock API + Expo
 npm run dev:mock:app:proxy  # terminal 3 — Expo on :8083 with same-origin env
 ```
 
-`scripts/dev-web-proxy.mjs` serves the app and the API from one port, and the app
-is then same-origin with its own API, so a browser makes no preflight and no CORS
-headers are needed. Open whatever address already points at `:8081` — the
+`scripts/dev-web-proxy.mjs` serves the app and the API from one port, and the
+app is then same-origin with its own API, so a browser makes no preflight and no
+CORS headers are needed. Open whatever address already points at `:8081` — the
 tunnel, or a LAN address — and everything works: all five tabs read the mock's
 assembled views. `EXPO_PUBLIC_SUPABASE_URL=same-origin` is the switch, it
 resolves on web builds only, and no build profile sets it.
+
+Build the app first for the steadier version — a static bundle has no Metro in
+the loop, so nothing the bundler does can take the page away mid-demo. The proxy
+serves `dist/` when it exists and falls back to Expo otherwise:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL=same-origin \
+EXPO_PUBLIC_API_BASE_URL=same-origin/customer \
+EXPO_PUBLIC_SUPABASE_ANON_KEY=local-dev-anon-key \
+EXPO_PUBLIC_SUPABASE_READS_ENABLED=true \
+npx expo export -p web --output-dir dist
+```
+
+Use `--supervise` (both `dev:mock:keep` and `dev:mock:proxy:keep` do) when the
+stack has to survive unattended: a supervisor that holds no port re-forks the
+one that does, which is the only way to recover from a signal no handler can
+catch. `MOCK_PORT` moves the mock off a port something else already owns, and
+`MOCK_ORIGIN` points the proxy at it.
 
 **Those credentials exist only in the mock.** A build started any other way —
 `npm run web`, `npm start`, an EAS build — reads `.env.local` and points at the

@@ -32,12 +32,25 @@
  * that points at :8081, and sign in with asifghe78@gmail.com / Passw0rd!.
  */
 
+import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { extname, join, normalize, resolve } from 'node:path';
+import { pipeline } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 
 const LISTEN_HOST = process.env.PROXY_HOST ?? '127.0.0.1';
 const LISTEN_PORT = Number(process.env.PROXY_PORT ?? 8081);
 const APP_PORT = Number(process.env.APP_PORT ?? 8083);
 const MOCK_ORIGIN = process.env.MOCK_ORIGIN ?? 'http://127.0.0.1:4000';
+/**
+ * A built app, when there is one. Serving the export is the steadier option for
+ * a phone: no Metro in the loop, so a rebuild, a watcher or a websocket cannot
+ * take the page away mid-demo. Without it, everything falls through to Expo.
+ */
+const STATIC_DIR = resolve(
+  process.env.PROXY_STATIC_DIR ?? (existsSync('dist') ? 'dist' : ''),
+);
 
 /** The paths the mock answers. Everything else is the app. */
 const MOCK_PREFIXES = ['/auth/v1', '/rest/v1', '/customer'];
@@ -75,8 +88,51 @@ function bustBundleStamp(html) {
   );
 }
 
+const CONTENT_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.svg': 'image/svg+xml',
+};
+
+function serveStatic(request, response, pathname) {
+  // `normalize` before joining: a request for `/../../etc/passwd` must not be
+  // able to walk out of the directory it is served from.
+  const candidate = join(STATIC_DIR, normalize(pathname).replace(/^(\.\.[/\\])+/, ''));
+  const file =
+    existsSync(candidate) && statSync(candidate).isFile()
+      ? candidate
+      : join(STATIC_DIR, 'index.html'); // single-page app: unknown paths are routes
+
+  if (!existsSync(file)) return false;
+  const type = CONTENT_TYPES[extname(file)] ?? 'application/octet-stream';
+  const stamped = type.includes('text/html') ? bustBundleStamp : (body) => body;
+
+  if (type.includes('text/html')) {
+    const chunks = [];
+    createReadStream(file)
+      .on('data', (chunk) => chunks.push(chunk))
+      .on('end', () => {
+        const body = Buffer.from(stamped(Buffer.concat(chunks).toString('utf8')));
+        response.writeHead(200, { 'Content-Type': type, 'content-length': body.length, 'cache-control': 'no-store' });
+        response.end(body);
+      });
+    return true;
+  }
+
+  response.writeHead(200, { 'Content-Type': type, 'cache-control': 'no-store' });
+  createReadStream(file).pipe(response);
+  return true;
+}
+
 function forward(request, response, target, { stripOrigin = false } = {}) {
-  const proxied = httpRequest(
+  const upstream = httpRequest(
     target,
     {
       method: request.method,
@@ -84,8 +140,8 @@ function forward(request, response, target, { stripOrigin = false } = {}) {
       // the mock validates, and dropping it would make every call anonymous.
       headers: { ...request.headers, host: new URL(target).host },
     },
-    (upstream) => {
-      const headers = { ...upstream.headers };
+    (response_) => {
+      const headers = { ...response_.headers };
       const contentType = String(headers['content-type'] ?? '');
 
       // The proxy *is* the origin as far as the browser is concerned, so the
@@ -100,41 +156,88 @@ function forward(request, response, target, { stripOrigin = false } = {}) {
       }
 
       if (contentType.includes('text/html')) {
+        // Buffered only so the bundle URL can be stamped. An error here is a
+        // dropped connection, not a reason to take the process down.
         const chunks = [];
-        upstream.on('data', (chunk) => chunks.push(chunk));
-        upstream.on('end', () => {
+        response_.on('data', (chunk) => chunks.push(chunk));
+        response_.on('error', () => response.end());
+        response_.on('end', () => {
+          if (response.writableEnded) return;
           const body = Buffer.from(bustBundleStamp(Buffer.concat(chunks).toString('utf8')));
-          delete headers['content-length'];
           headers['content-length'] = String(body.length);
           // The page must not be cached either, or the stamp never arrives.
           headers['cache-control'] = 'no-store';
-          response.writeHead(upstream.statusCode ?? 200, headers);
+          response.writeHead(response_.statusCode ?? 200, headers);
           response.end(body);
         });
         return;
       }
 
       if (stripOrigin) headers['cache-control'] = 'no-store';
-      response.writeHead(upstream.statusCode ?? 502, headers);
-      upstream.pipe(response);
+      response.writeHead(response_.statusCode ?? 502, headers);
+      pipeline(response_, response, () => undefined);
     },
   );
 
-  proxied.on('error', (error) => {
-    if (!response.headersSent) response.writeHead(502, { 'Content-Type': 'application/json' });
+  upstream.on('error', (error) => {
+    if (response.writableEnded || response.headersSent) {
+      response.end();
+      return;
+    }
+    response.writeHead(502, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ status: 'error', message: String(error.message) }));
   });
 
-  request.pipe(proxied);
+  // `pipeline` tears both sides down together. Without it, a browser that hangs
+  // up mid-request — which a page reload, an aborted HMR poll and a phone losing
+  // signal all do — leaves an unhandled stream error, and an unhandled stream
+  // error takes the whole process with it.
+  pipeline(request, upstream, () => undefined);
 }
+
+/**
+ * `--supervise` restarts the proxy if it ever exits.
+ *
+ * A long-lived tunnel on a phone is a bad place for a dev tool to have a bad
+ * minute: an aborted request or a dropped upstream can take the process down,
+ * and until it is back the page in the customer's hand is simply broken. This
+ * is a development affordance, not something a build ever runs.
+ */
+const SUPERVISE = process.argv.includes('--supervise');
 
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', `http://${LISTEN_HOST}:${LISTEN_PORT}`).pathname;
-  const toMock = isMockPath(pathname);
-  const target = toMock ? `${MOCK_ORIGIN}${request.url}` : `http://127.0.0.1:${APP_PORT}${request.url}`;
 
-  console.log(`  ${request.method} ${pathname}  ->  ${toMock ? 'mock' : 'expo'}`);
-  forward(request, response, target, { stripOrigin: !toMock });
+  if (isMockPath(pathname)) {
+    console.log(`  ${request.method} ${pathname}  ->  mock`);
+    forward(request, response, `${MOCK_ORIGIN}${request.url}`);
+    return;
+  }
+
+  if (STATIC_DIR && request.method === 'GET' && serveStatic(request, response, pathname)) {
+    console.log(`  ${request.method} ${pathname}  ->  static`);
+    return;
+  }
+
+  console.log(`  ${request.method} ${pathname}  ->  expo`);
+  forward(request, response, `http://127.0.0.1:${APP_PORT}${request.url}`, { stripOrigin: true });
+});
+
+server.on('error', (error) => {
+  console.error(`  proxy error: ${error.message}`);
+  // A port that is busy is worth waiting for, not worth dying quietly on: the
+  // previous incumbent is usually a dev server shutting down. Without this the
+  // process stays alive, listening to nothing, and every request fails while
+  // the log claims it started.
+  if (error.code === 'EADDRINUSE') {
+    console.error(`  port ${LISTEN_PORT} is busy — retrying in 2s.`);
+    setTimeout(() => server.listen(LISTEN_PORT, LISTEN_HOST), 2000);
+    return;
+  }
+  if (error.code === 'EACCES') {
+    console.error(`  not allowed to bind ${LISTEN_PORT}.`);
+    process.exit(1);
+  }
 });
 
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
@@ -149,3 +252,31 @@ server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   console.log('  Sign in with  asifghe78@gmail.com  /  Passw0rd!');
   console.log('');
 });
+
+if (SUPERVISE) {
+  const isChild = process.env.PROXY_CHILD === '1';
+
+  if (!isChild) {
+    // The parent holds no port, so it survives whatever reaps the process that
+    // does. A restart in the *same* process would not help: a signal it cannot
+    // catch leaves nothing to run the handler.
+    const runChild = () => {
+      const child = spawn(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+        stdio: 'inherit',
+        env: { ...process.env, PROXY_CHILD: '1' },
+      });
+      child.on('exit', (code, signal) => {
+        if (signal === 'SIGTERM' || signal === 'SIGINT' || code === 0) {
+          process.exit(code ?? 0);
+        }
+        console.error(`\n  proxy stopped (${signal ?? `exit ${code}`}) — restarting in 1s.`);
+        setTimeout(runChild, 1000);
+      });
+    };
+
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      process.on(signal, () => process.exit(0));
+    }
+    runChild();
+  }
+}

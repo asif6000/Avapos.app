@@ -32,6 +32,16 @@ export function EmptyState({ title, body, action, style }: EmptyStateProps) {
 interface ErrorStateProps {
   message?: string | null;
   onRetry?: () => void;
+  /**
+   * Offered only where the customer is signed in and a screen has failed.
+   *
+   * Without it there is a real trap: every screen inside the app can fail, the
+   * header action that reaches Settings disappears with the content, and a
+   * customer whose session no longer matches the server has no way back to the
+   * sign-in screen at all. The session may well be fine, so this is *offered*,
+   * never forced, and it sits below Retry rather than pretending to be the fix.
+   */
+  onSignOut?: () => void;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -39,7 +49,7 @@ interface ErrorStateProps {
  * Renders only customer-safe copy. Stack traces, SQL text and backend paths are
  * stripped before they ever reach this component.
  */
-export function ErrorState({ message, onRetry, style }: ErrorStateProps) {
+export function ErrorState({ message, onRetry, onSignOut, style }: ErrorStateProps) {
   const { t } = useTranslation();
   const theme = useTheme();
   return (
@@ -59,8 +69,20 @@ export function ErrorState({ message, onRetry, style }: ErrorStateProps) {
           style={{ color: theme.colors.primary, marginTop: 8 }}
           onPress={onRetry}
           accessibilityRole="button"
+          testID="error-retry"
         >
           {t('common.retry')}
+        </Text>
+      ) : null}
+      {onSignOut ? (
+        <Text
+          variant="labelLarge"
+          style={{ color: theme.colors.onSurfaceVariant, marginTop: 8 }}
+          onPress={onSignOut}
+          accessibilityRole="button"
+          testID="error-sign-out"
+        >
+          {t('settings.signOut')}
         </Text>
       ) : null}
     </View>

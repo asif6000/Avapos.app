@@ -9,12 +9,14 @@ import { EmptyState, ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { usePayments } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { useAuthStore } from '@/store/authStore';
 import { formatCurrency, formatDateTime, paymentStatusLabel } from '@/utils/format';
 import type { Payment } from '@/types/domain';
 
 export default function PaymentHistoryScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
   const { data, isLoading, isRefetching, error, refetch } = usePayments(1);
 
@@ -33,7 +35,7 @@ export default function PaymentHistoryScreen() {
           <ListSkeleton count={4} />
         </View>
       ) : error && error.kind !== 'network' ? (
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
+        <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       ) : payments.length === 0 ? (
         <EmptyState title={t('payments.empty')} body={t('dashboard.noInstallment')} />
       ) : (

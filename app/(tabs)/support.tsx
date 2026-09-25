@@ -9,6 +9,7 @@ import { EmptyState, ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useTickets } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { useAuthStore } from '@/store/authStore';
 import { formatDateTime, ticketStatusLabel } from '@/utils/format';
 import type { SupportTicket, TicketStatus } from '@/types/domain';
 
@@ -22,6 +23,7 @@ const TICKET_TONES: Record<TicketStatus, BadgeTone> = {
 export default function SupportHomeScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
   const { data, isLoading, isRefetching, error, refetch } = useTickets(1);
 
@@ -36,7 +38,7 @@ export default function SupportHomeScreen() {
           <ListSkeleton count={3} />
         </View>
       ) : error && error.kind !== 'network' ? (
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
+        <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       ) : tickets.length === 0 ? (
         <EmptyState title={t('support.myTickets')} body={t('support.noTickets')} />
       ) : (

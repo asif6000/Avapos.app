@@ -7,6 +7,7 @@ import { AppHeader } from '@/components/AppHeader';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { Screen } from '@/components/Screen';
 import { API_BASE_URL } from '@/api/config';
+import { SUPABASE_URL } from '@/supabase/client';
 import { DEVICE_MANAGEMENT_AGREEMENT_VERSION } from '@/config/agreement';
 import { hasNativeDeviceManagement } from '@/native/deviceManagement';
 import { useTranslation } from '@/hooks/useTheme';
@@ -34,6 +35,15 @@ export default function AboutScreen() {
             tone="muted"
           />
           <InfoRow label="API" value={API_BASE_URL} tone="muted" />
+          {/* Which project this build is talking to. The question has to be
+              answerable on the device: a stale bundle pointing at a different
+              backend than the one you think you are testing looks exactly like
+              a broken app, and nothing else on screen says which it is. */}
+          <InfoRow
+            label="Supabase"
+            value={SUPABASE_URL ?? 'not configured in this build'}
+            tone="muted"
+          />
         </SectionCard>
 
         <SectionCard title={t('settings.managementAgreement')}>

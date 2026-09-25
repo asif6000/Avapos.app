@@ -10,6 +10,7 @@ import { ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useDevice, useDeviceStatus, useSyncDevice } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { useAuthStore } from '@/store/authStore';
 import { RESTRICTED_STATES } from '@/types/domain';
 import {
   deviceStateLabel,
@@ -23,6 +24,7 @@ import {
 export default function DeviceScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
   const deviceQuery = useDevice();
   const statusQuery = useDeviceStatus();
@@ -57,7 +59,7 @@ export default function DeviceScreen() {
       ) : error ? (
         // Same rule as the dashboard: a failed request is an error, never an
         // empty device list.
-        <ErrorState message={error.message} onRetry={refresh} />
+        <ErrorState message={error.message} onRetry={refresh} onSignOut={() => void signOut()} />
       ) : (
         <ScrollView
           contentContainerStyle={styles.content}

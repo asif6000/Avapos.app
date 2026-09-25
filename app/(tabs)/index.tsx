@@ -12,12 +12,14 @@ import { ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useDashboard } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { useAuthStore } from '@/store/authStore';
 import { useNetworkStore } from '@/store/networkStore';
 import { deviceStateLabel, formatCurrency, formatDate, percentOf } from '@/utils/format';
 
 export default function DashboardScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
+  const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
   const online = useNetworkStore((state) => state.online);
   const { data, isLoading, isRefetching, error, refetch } = useDashboard();
@@ -30,7 +32,15 @@ export default function DashboardScreen() {
   if (isLoading) {
     return (
       <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-        <AppHeader title={t('common.appName')} back={false} />
+        <AppHeader
+          title={t('common.appName')}
+          back={false}
+          action={{
+            icon: 'bell-outline',
+            label: t('notifications.title'),
+            onPress: () => router.push('/notifications'),
+          }}
+        />
         <ScrollView contentContainerStyle={styles.content}>
           <DashboardSkeleton />
         </ScrollView>
@@ -44,8 +54,16 @@ export default function DashboardScreen() {
   if (error) {
     return (
       <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-        <AppHeader title={t('common.appName')} back={false} />
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
+        <AppHeader
+          title={t('common.appName')}
+          back={false}
+          action={{
+            icon: 'bell-outline',
+            label: t('notifications.title'),
+            onPress: () => router.push('/notifications'),
+          }}
+        />
+        <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       </View>
     );
   }
