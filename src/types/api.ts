@@ -20,25 +20,33 @@ export interface AuthTokens {
   expiresAt: number;
 }
 
-export interface LoginRequest {
-  phone: string;
-  password?: string;
-}
-
+/**
+ * Authentication is passwordless: an emailed code, verified by the backend.
+ * There is no password anywhere in the app, so none can be phished, reused or
+ * leaked from a breached database.
+ */
 export interface OtpRequest {
-  phone: string;
+  email: string;
 }
 
 export interface OtpVerifyRequest {
-  phone: string;
+  email: string;
   code: string;
 }
 
+export interface OtpChallenge {
+  /** Opaque handle for the challenge, echoed back on verify. */
+  challengeId: string;
+  sent: boolean;
+  expiresIn: number;
+  resendAfter: number;
+  /** False when the address is unknown, so the UI can still avoid account enumeration. */
+  accountExists: boolean;
+}
+
+/** Post-verification profile setup. The address is already verified by then. */
 export interface RegisterRequest {
   fullName: string;
-  phone: string;
-  email?: string;
-  password: string;
   deviceName: string;
   agreementVersion: string;
 }
@@ -46,7 +54,9 @@ export interface RegisterRequest {
 export interface AuthSession extends AuthTokens {
   customerId: string;
   fullName: string;
-  phone: string;
+  email: string;
+  /** Server's view of whether the address is confirmed. */
+  emailVerified: boolean;
 }
 
 export interface CreatePaymentRequest {

@@ -75,15 +75,13 @@ export default function RootLayout() {
                 contentStyle: { backgroundColor: theme.colors.background },
               }}
             >
+              {/* Only declare routes that actually exist. `device/`,
+                  `installments/`, `payments/` and `support/` hold nested
+                  screens only, so naming the parent throws a layout warning. */}
               <Stack.Screen name="index" />
               <Stack.Screen name="(auth)" />
               <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="device" />
-              <Stack.Screen name="installments" />
-              <Stack.Screen name="payments" />
-              <Stack.Screen name="notifications" />
-              <Stack.Screen name="support" />
-              <Stack.Screen name="settings" />
+              <Stack.Screen name="notifications/index" />
             </Stack>
           </PaperProvider>
         </QueryClientProvider>

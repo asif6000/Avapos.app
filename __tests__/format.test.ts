@@ -1,6 +1,15 @@
 import { RESTRICTED_STATES, isDeviceState } from '@/types/domain';
 import { createTranslator } from '@/i18n';
-import { formatCurrency, isValidBdPhone, maskPhone, normalizePhone, percentOf } from '@/utils/format';
+import {
+  formatCurrency,
+  isValidBdPhone,
+  isValidEmail,
+  maskEmail,
+  maskPhone,
+  normalizeEmail,
+  normalizePhone,
+  percentOf,
+} from '@/utils/format';
 
 describe('formatting', () => {
   it('formats Bangladeshi Taka with the ৳ symbol', () => {
@@ -13,6 +22,20 @@ describe('formatting', () => {
 
   it('compacts large balances into lakh for the dashboard hero', () => {
     expect(formatCurrency(250000, { compact: true })).toBe('৳2.5 লক্ষ');
+  });
+
+  it('validates and normalizes email addresses', () => {
+    expect(isValidEmail('name@example.com')).toBe(true);
+    expect(isValidEmail('name+tag@sub.example.co.uk')).toBe(true);
+    expect(isValidEmail('name@')).toBe(false);
+    expect(isValidEmail('name@example')).toBe(false);
+    expect(isValidEmail('two@@example.com')).toBe(false);
+    expect(normalizeEmail('  Ayesha@Example.COM ')).toBe('ayesha@example.com');
+  });
+
+  it('masks an email so a code screen leaks less', () => {
+    expect(maskEmail('ayesha@example.com')).toBe('a*****@example.com');
+    expect(maskEmail('a@example.com')).toBe('a*@example.com');
   });
 
   it('validates and normalizes Bangladeshi mobile numbers', () => {
@@ -57,7 +80,7 @@ describe('localization', () => {
   });
 
   it('interpolates parameters', () => {
-    expect(t('auth.otpSubtitle', { phone: '8801712345678' })).toContain('8801712345678');
+    expect(t('auth.otpSubtitle', { email: 'a***@example.com' })).toContain('a***@example.com');
   });
 
   it('falls back to English for an unknown key', () => {

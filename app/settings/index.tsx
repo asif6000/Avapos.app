@@ -24,6 +24,7 @@ export default function SettingsScreen() {
   const setThemePreference = usePreferencesStore((state) => state.setTheme);
 
   const { data: profile } = useProfile();
+  const supabaseLink = useAuthStore((state) => state.supabaseLink);
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -131,6 +132,15 @@ export default function SettingsScreen() {
           <List.Item
             title={t('settings.managementAgreement')}
             onPress={() => router.push('/settings/management-agreement')}
+          />
+        </List.Section>
+
+        <List.Section>
+          <List.Item
+            title={t('supabaseLink.title')}
+            description={t(`supabaseLink.state.${supabaseLink}`)}
+            onPress={() => router.push('/settings/supabase-link')}
+            testID="settings-supabase-link"
           />
         </List.Section>
 

@@ -7,13 +7,22 @@ import type { AuthSession } from '@/types/api';
 jest.mock('@/api/endpoints', () => ({
   endpoints: {
     auth: {
-      login: jest.fn(),
-      register: jest.fn(),
       requestOtp: jest.fn(),
       verifyOtp: jest.fn(),
+      resendOtp: jest.fn(),
+      registerProfile: jest.fn(),
     },
     customer: { profile: jest.fn() },
   },
+}));
+
+jest.mock('@/supabase/session', () => ({
+  linkSupabaseSession: jest.fn(async () => ({
+    state: 'disabled' as const,
+    supabaseUserId: null,
+    message: null,
+  })),
+  signOutSupabase: jest.fn(async () => undefined),
 }));
 
 const authMock = jest.mocked(endpoints.auth);
@@ -23,9 +32,18 @@ const session: AuthSession = {
   accessToken: 'access-1',
   refreshToken: 'refresh-1',
   expiresAt: Date.now() + 3_600_000,
-  customerId: 'cust-1',
+  customerId: 'CUST-23839',
   fullName: 'Ayesha Rahman',
-  phone: '8801712345678',
+  email: 'ayesha@example.com',
+  emailVerified: true,
+};
+
+const challenge = {
+  challengeId: 'ch-1',
+  sent: true,
+  expiresIn: 300,
+  resendAfter: 60,
+  accountExists: true,
 };
 
 function makeStore() {
@@ -46,7 +64,7 @@ function makeStore() {
   return { store: createAuthStore(manager as never), storage };
 }
 
-describe('auth store', () => {
+describe('passwordless auth store', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('starts unauthenticated when no session is stored', async () => {
@@ -55,49 +73,91 @@ describe('auth store', () => {
     expect(store.getState().status).toBe('unauthenticated');
   });
 
-  it('signs in with phone and password and stores tokens securely', async () => {
-    authMock.login.mockResolvedValue(session);
+  it('never asks the backend for, or sends, a password', async () => {
+    authMock.requestOtp.mockResolvedValue(challenge);
+    const { store } = makeStore();
+
+    await store.getState().requestOtp('  Ayesha@Example.com ');
+
+    expect(authMock.requestOtp).toHaveBeenCalledWith({ email: 'ayesha@example.com' });
+    // The endpoint surface has no password verb at all.
+    expect(Object.keys(authMock).sort()).toEqual([
+      'registerProfile',
+      'requestOtp',
+      'resendOtp',
+      'verifyOtp',
+    ]);
+  });
+
+  it('completes sign-in by exchanging a code for a session', async () => {
+    authMock.verifyOtp.mockResolvedValue(session);
     const { store, storage } = makeStore();
 
-    await store.getState().login({ phone: '8801712345678', password: 'secret123' });
+    const result = await store.getState().verifyOtp({ email: 'ayesha@example.com', code: '123456' });
 
-    expect(authMock.login).toHaveBeenCalledWith({
-      phone: '8801712345678',
-      password: 'secret123',
+    expect(authMock.verifyOtp).toHaveBeenCalledWith({
+      email: 'ayesha@example.com',
+      code: '123456',
     });
+    expect(result.customerId).toBe('CUST-23839');
     expect(store.getState().status).toBe('authenticated');
-    expect(store.getState().profile?.fullName).toBe('Ayesha Rahman');
     expect((await storage.get())?.accessToken).toBe('access-1');
   });
 
-  it('surfaces a customer-safe message and stays signed out on a bad password', async () => {
-    authMock.login.mockRejectedValue(
-      new ApiError({ kind: 'unauthorized', message: 'Incorrect mobile number or password.' }),
+  it('signs a new address up through the same verify call', async () => {
+    // There is no separate register endpoint: a first-time address simply has no
+    // name yet, and the app asks for one afterwards.
+    authMock.verifyOtp.mockResolvedValue({ ...session, fullName: '', emailVerified: false });
+    const { store } = makeStore();
+
+    const result = await store.getState().verifyOtp({ email: 'new@example.com', code: '000000' });
+
+    expect(result.fullName).toBe('');
+    expect(store.getState().profile?.emailVerified).toBe(false);
+  });
+
+  it('stores the resend window so the button cannot be spammed', async () => {
+    authMock.resendOtp.mockResolvedValue(challenge);
+    const { store } = makeStore();
+
+    await store.getState().resendOtp('ayesha@example.com');
+
+    expect(authMock.resendOtp).toHaveBeenCalledWith({ email: 'ayesha@example.com' });
+    expect(store.getState().otpResendAvailableAt).toBeGreaterThan(Date.now());
+  });
+
+  it('surfaces a customer-safe message and stays signed out on a bad code', async () => {
+    authMock.verifyOtp.mockRejectedValue(
+      new ApiError({ kind: 'validation', message: 'That code is not correct. Try again.' }),
     );
     const { store } = makeStore();
     await store.getState().bootstrap();
 
     await expect(
-      store.getState().login({ phone: '8801712345678', password: 'wrong' }),
+      store.getState().verifyOtp({ email: 'ayesha@example.com', code: '000000' }),
     ).rejects.toBeInstanceOf(ApiError);
 
     expect(store.getState().status).toBe('unauthenticated');
-    expect(store.getState().error).toBe('Incorrect mobile number or password.');
+    expect(store.getState().error).toBe('That code is not correct. Try again.');
   });
 
-  it('completes an OTP login', async () => {
-    authMock.requestOtp.mockResolvedValue({ sent: true, expiresIn: 300, resendAfter: 60 });
-    authMock.verifyOtp.mockResolvedValue(session);
-    const { store, storage } = makeStore();
+  it('completes registration after the address is verified', async () => {
+    authMock.verifyOtp.mockResolvedValue({ ...session, fullName: '' });
+    authMock.registerProfile.mockResolvedValue({ fullName: 'Ayesha Rahman' });
+    const { store } = makeStore();
+    await store.getState().verifyOtp({ email: 'ayesha@example.com', code: '123456' });
 
-    await store.getState().requestOtp('8801712345678');
-    expect(store.getState().otpPhone).toBe('8801712345678');
-    expect(store.getState().otpResendAvailableAt).toBeGreaterThan(Date.now());
+    await store.getState().completeRegistration({
+      fullName: '  Ayesha Rahman ',
+      deviceName: 'Galaxy A15',
+      agreementVersion: '1.0.0',
+    });
 
-    await store.getState().verifyOtp({ phone: '8801712345678', code: '123456' });
-
-    expect(store.getState().status).toBe('authenticated');
-    expect((await storage.get())?.refreshToken).toBe('refresh-1');
+    expect(authMock.registerProfile).toHaveBeenCalledWith({
+      fullName: 'Ayesha Rahman',
+      deviceName: 'Galaxy A15',
+    });
+    expect(store.getState().profile?.fullName).toBe('Ayesha Rahman');
   });
 
   it('keeps the customer signed in when the network is unavailable', async () => {
@@ -113,8 +173,7 @@ describe('auth store', () => {
 
     await store.getState().bootstrap();
 
-    // Offline is not a revocation: tokens are kept so cached data can render,
-    // and no authorization decision is made locally.
+    // Offline is not a revocation. No authorization is granted locally.
     expect(store.getState().status).toBe('authenticated');
     expect(await storage.get()).not.toBeNull();
   });
@@ -138,24 +197,13 @@ describe('auth store', () => {
 
   it('destroys local tokens on sign out', async () => {
     const { store, storage } = makeStore();
-    authMock.login.mockResolvedValue(session);
-    await store.getState().login({ phone: '8801712345678', password: 'secret123' });
+    authMock.verifyOtp.mockResolvedValue(session);
+    await store.getState().verifyOtp({ email: 'ayesha@example.com', code: '123456' });
 
     await store.getState().signOut();
 
     expect(store.getState().status).toBe('unauthenticated');
     expect(store.getState().profile).toBeNull();
-    expect(await storage.get()).toBeNull();
-  });
-
-  it('signs out globally when any request returns 401', async () => {
-    const { store, storage } = makeStore();
-    authMock.login.mockResolvedValue(session);
-    await store.getState().login({ phone: '8801712345678', password: 'secret123' });
-
-    await store.getState().handleUnauthorized();
-
-    expect(store.getState().status).toBe('unauthenticated');
     expect(await storage.get()).toBeNull();
   });
 });

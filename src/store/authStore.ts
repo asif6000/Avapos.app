@@ -4,46 +4,68 @@ import { endpoints } from '@/api/endpoints';
 import { ApiError } from '@/api/errors';
 import { onSessionExpired } from '@/auth/sessionEvents';
 import { sessionManager, type SessionManager } from '@/auth/sessionManager';
-import type { AuthSession, LoginRequest, OtpVerifyRequest, RegisterRequest } from '@/types/api';
+import { linkSupabaseSession, signOutSupabase, type LinkState } from '@/supabase/session';
+import type { AuthSession, OtpVerifyRequest, RegisterRequest } from '@/types/api';
+import { normalizeEmail } from '@/utils/format';
+
+/**
+ * Passwordless authentication.
+ *
+ * The app holds no password anywhere. Sign-up and sign-in are the same flow:
+ * ask the backend for a code, the customer types the code the backend mailed,
+ * and the code is exchanged for a session. An unknown address creates the
+ * account on first successful verify, which is why `requestOtp` never reveals
+ * whether an account already exists.
+ *
+ * A second, read-only Supabase session may be linked so RLS has an
+ * `auth.uid()` to scope by. It is optional, and it grants no write access.
+ */
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
 export interface Profile {
   id: string;
   fullName: string;
-  phone: string;
+  email: string;
+  emailVerified: boolean;
 }
 
 interface AuthState {
   status: AuthStatus;
   profile: Profile | null;
   error: string | null;
-  otpPhone: string | null;
+  /** Address a code is currently outstanding for. */
+  pendingEmail: string | null;
   otpResendAvailableAt: number | null;
+  /** Result of linking the secondary Supabase session. */
+  supabaseLink: LinkState;
   bootstrap: () => Promise<void>;
-  login: (payload: LoginRequest) => Promise<void>;
-  register: (payload: RegisterRequest) => Promise<void>;
-  requestOtp: (phone: string) => Promise<number>;
-  verifyOtp: (payload: OtpVerifyRequest) => Promise<void>;
+  requestOtp: (email: string) => Promise<number>;
+  resendOtp: (email: string) => Promise<number>;
+  verifyOtp: (payload: OtpVerifyRequest) => Promise<AuthSession>;
+  completeRegistration: (payload: RegisterRequest) => Promise<void>;
+  linkSupabase: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   handleUnauthorized: () => Promise<void>;
   clearError: () => void;
-  setOtpContext: (phone: string, resendAvailableAt: number | null) => void;
+  setPendingEmail: (email: string, resendAvailableAt: number | null) => void;
 }
 
 const extractProfile = (session: AuthSession): Profile => ({
   id: session.customerId,
   fullName: session.fullName,
-  phone: session.phone,
+  email: session.email,
+  emailVerified: session.emailVerified,
 });
 
 export function createAuthStore(manager: SessionManager = sessionManager) {
-  return create<AuthState>((set) => ({
+  return create<AuthState>((set, get) => ({
     status: 'loading',
     profile: null,
     error: null,
-    otpPhone: null,
+    pendingEmail: null,
     otpResendAvailableAt: null,
+    supabaseLink: 'signed-out',
 
     async bootstrap() {
       const tokens = await manager.read();
@@ -58,59 +80,48 @@ export function createAuthStore(manager: SessionManager = sessionManager) {
           profile: {
             id: customer.id,
             fullName: customer.fullName,
-            phone: customer.phone,
+            email: customer.email ?? '',
+            emailVerified: customer.verifiedAt !== null,
           },
           error: null,
         });
+        // Best effort: a missing Supabase link must never block the app.
+        if (customer.email) await get().linkSupabase(customer.email);
       } catch (error) {
         if (error instanceof ApiError && error.isAuthError) {
           await manager.clear();
           set({ status: 'unauthenticated', profile: null });
           return;
         }
-        // Network is down. Keep the tokens, stay signed in, and let the query
-        // layer serve cached data. Authorization is never granted offline.
-        set({
-          status: 'authenticated',
-          profile: null,
-          error: error instanceof ApiError ? error.message : null,
-        });
+        // Offline. Keep the tokens so cached data can render. Authorization is
+        // never granted locally.
+        set({ status: 'authenticated', profile: null, error: messageOf(error) });
       }
     },
 
-    async login(payload) {
+    async requestOtp(rawEmail) {
       set({ error: null });
+      // Normalized here, not in the caller: `Ayesha@Example.com` and
+      // `ayesha@example.com` must be one account, never two.
+      const email = normalizeEmail(rawEmail);
       try {
-        const session = await endpoints.auth.login(payload);
-        await manager.persist(session);
-        set({ status: 'authenticated', profile: extractProfile(session) });
+        const challenge = await endpoints.auth.requestOtp({ email });
+        const resendAfterMs = (challenge.resendAfter ?? 60) * 1000;
+        set({ pendingEmail: email, otpResendAvailableAt: Date.now() + resendAfterMs });
+        return resendAfterMs;
       } catch (error) {
         set({ error: messageOf(error) });
         throw error;
       }
     },
 
-    async register(payload) {
+    async resendOtp(rawEmail) {
       set({ error: null });
+      const email = normalizeEmail(rawEmail);
       try {
-        const session = await endpoints.auth.register(payload);
-        await manager.persist(session);
-        set({ status: 'authenticated', profile: extractProfile(session) });
-      } catch (error) {
-        set({ error: messageOf(error) });
-        throw error;
-      }
-    },
-
-    async requestOtp(phone) {
-      set({ error: null });
-      try {
-        const result = await endpoints.auth.requestOtp({ phone });
-        const resendAfterMs = (result.resendAfter ?? 60) * 1000;
-        set({
-          otpPhone: phone,
-          otpResendAvailableAt: Date.now() + resendAfterMs,
-        });
+        const challenge = await endpoints.auth.resendOtp({ email });
+        const resendAfterMs = (challenge.resendAfter ?? 60) * 1000;
+        set({ otpResendAvailableAt: Date.now() + resendAfterMs });
         return resendAfterMs;
       } catch (error) {
         set({ error: messageOf(error) });
@@ -120,24 +131,59 @@ export function createAuthStore(manager: SessionManager = sessionManager) {
 
     async verifyOtp(payload) {
       set({ error: null });
+      const email = normalizeEmail(payload.email);
       try {
-        const session = await endpoints.auth.verifyOtp(payload);
+        const session = await endpoints.auth.verifyOtp({ ...payload, email });
         await manager.persist(session);
-        set({ status: 'authenticated', profile: extractProfile(session), otpPhone: null });
+        set({
+          status: 'authenticated',
+          profile: extractProfile(session),
+          pendingEmail: null,
+          otpResendAvailableAt: null,
+        });
+        await get().linkSupabase(session.email);
+        return session;
       } catch (error) {
         set({ error: messageOf(error) });
         throw error;
       }
     },
 
+    /**
+     * Runs after the first successful verify for a new address: the account
+     * exists, it just needs a name and the device it covers.
+     */
+    async completeRegistration(payload) {
+      set({ error: null });
+      try {
+        const updated = await endpoints.auth.registerProfile({
+          fullName: payload.fullName.trim(),
+          deviceName: payload.deviceName.trim(),
+        });
+        set((state) => ({
+          profile: state.profile ? { ...state.profile, fullName: updated.fullName } : state.profile,
+        }));
+      } catch (error) {
+        set({ error: messageOf(error) });
+        throw error;
+      }
+    },
+
+    async linkSupabase(rawEmail) {
+      const result = await linkSupabaseSession(normalizeEmail(rawEmail));
+      set({ supabaseLink: result.state });
+    },
+
     async signOut() {
       await manager.signOut();
+      await signOutSupabase();
       set({
         status: 'unauthenticated',
         profile: null,
         error: null,
-        otpPhone: null,
+        pendingEmail: null,
         otpResendAvailableAt: null,
+        supabaseLink: 'signed-out',
       });
     },
 
@@ -150,8 +196,8 @@ export function createAuthStore(manager: SessionManager = sessionManager) {
       set({ error: null });
     },
 
-    setOtpContext(phone, resendAvailableAt) {
-      set({ otpPhone: phone, otpResendAvailableAt: resendAvailableAt });
+    setPendingEmail(email, resendAvailableAt) {
+      set({ pendingEmail: email, otpResendAvailableAt: resendAvailableAt });
     },
   }));
 }

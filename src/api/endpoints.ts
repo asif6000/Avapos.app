@@ -3,7 +3,7 @@ import type {
   AuthSession,
   CreatePaymentRequest,
   CreateTicketRequest,
-  LoginRequest,
+  OtpChallenge,
   OtpRequest,
   OtpVerifyRequest,
   Paginated,
@@ -34,19 +34,19 @@ import type {
  */
 export function createEndpoints(client: ApiClient) {
   return {
+    // Passwordless. The app never handles a password: it asks for a code, the
+    // backend mails it, and the code is exchanged for a session. Sign-up and
+    // sign-in are the same two calls — a new address simply creates the account
+    // on first successful verify.
     auth: {
-      login: (payload: LoginRequest) =>
-        client.post<AuthSession>('/auth/login', payload, { anonymous: true }),
-      register: (payload: RegisterRequest) =>
-        client.post<AuthSession>('/auth/register', payload, { anonymous: true }),
       requestOtp: (payload: OtpRequest) =>
-        client.post<{ sent: boolean; expiresIn: number; resendAfter: number }>(
-          '/auth/otp/request',
-          payload,
-          { anonymous: true },
-        ),
+        client.post<OtpChallenge>('/auth/otp/request', payload, { anonymous: true }),
       verifyOtp: (payload: OtpVerifyRequest) =>
         client.post<AuthSession>('/auth/otp/verify', payload, { anonymous: true }),
+      resendOtp: (payload: OtpRequest) =>
+        client.post<OtpChallenge>('/auth/otp/resend', payload, { anonymous: true }),
+      registerProfile: (payload: Pick<RegisterRequest, 'fullName' | 'deviceName'>) =>
+        client.post<Pick<AuthSession, 'fullName'>>('/customer/profile', payload),
     },
 
     customer: {

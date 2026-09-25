@@ -81,8 +81,9 @@ export type NotificationType =
 export interface Customer {
   id: string;
   fullName: string;
-  phone: string;
-  email: string | null;
+  email: string;
+  /** The address the customer is verified against. */
+  phone: string | null;
   photoUrl: string | null;
   language: 'en' | 'bn';
   verifiedAt: string | null;

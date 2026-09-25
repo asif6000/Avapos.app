@@ -115,8 +115,8 @@ function mapProfile(row: ProfileRow): Customer {
   return {
     id: row.id,
     fullName: row.full_name,
-    phone: row.phone_number,
-    email: row.email,
+    email: row.email ?? row.phone_number,
+    phone: null,
     photoUrl: null,
     language: row.language === 'bn' ? 'bn' : 'en',
     verifiedAt: null,

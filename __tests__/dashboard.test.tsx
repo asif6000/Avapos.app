@@ -16,8 +16,8 @@ const dashboard: DashboardSummary = {
   customer: {
     id: 'c1',
     fullName: 'Ayesha Rahman',
-    phone: '8801712345678',
-    email: null,
+    email: 'ayesha@example.com',
+    phone: null,
     photoUrl: null,
     language: 'en',
     verifiedAt: null,

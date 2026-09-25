@@ -43,14 +43,14 @@ bundled asset.
 
 ```
 app/                     expo-router routes
-  (auth)/                login, register, otp
+  (auth)/                login (email), otp (code), register (finish setup)
   (tabs)/                dashboard, installments, device, payments, support
   device/                enrollment, restriction, restored
   installments/[id]      installment detail
   payments/              create, processing, success, failed, pending, [id]
   notifications/         notification centre
   support/               create ticket, [id]
-  settings/              profile, terms, privacy, management agreement, about
+  settings/              profile, terms, privacy, agreement, supabase-link, about
 src/
   api/                   client, endpoints, errors, query client
   auth/                  SecureStore token storage, session manager, events
@@ -71,10 +71,26 @@ __tests__/               jest suites
 
 ## Security model
 
-**Authentication.** Phone + password or phone + OTP. Access and refresh tokens
-live in `expo-secure-store` (Android Keystore-backed), never AsyncStorage. The
-API client attaches `Authorization: Bearer <access token>`, refreshes once on
-expiry with a shared in-flight lock, and funnels every 401 into one sign-out.
+**Authentication.** Passwordless. The customer enters an email address, the
+backend mails a 6-digit code, and the code is exchanged for a session. Sign-up
+and sign-in are the same two calls — a new address simply has no name yet, so
+the app asks for one afterwards. There is no password anywhere in the app, so
+none can be phished, reused, or leaked from a breached database. Addresses are
+normalized (trimmed, lowercased) inside the store, not by callers, so
+`Ayesha@Example.com` and `ayesha@example.com` can never become two accounts.
+`requestOtp` must not reveal whether an account exists, or it becomes an
+enumeration oracle. Access and refresh tokens live in `expo-secure-store`
+(Android Keystore-backed), never AsyncStorage. The API client attaches
+`Authorization: Bearer <access token>`, refreshes once on expiry with a shared
+in-flight lock, and funnels every 401 into one sign-out.
+
+**Two sessions, deliberately.** The REST session above is the real identity. A
+second, *read-only* Supabase session may be linked from
+`app/settings/supabase-link.tsx`, and it exists for exactly one reason: RLS needs
+a non-null `auth.uid()` to decide which rows a request may see. It grants no
+write access and no additional authority — payments, device state, agreement
+acceptance and enrollment all still go through the REST API. If the link is
+missing or fails, the app reads everything through the API and stays usable.
 
 **Authorization.** Requests are scoped by the session token alone. The app never
 sends `customerId`, `deviceId` or `contractId` to authorize anything, and uses

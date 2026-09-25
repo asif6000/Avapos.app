@@ -161,6 +161,27 @@ export function normalizePhone(input: string): string {
   return digits;
 }
 
+/** Lowercased and trimmed; the backend treats addresses case-insensitively. */
+export function normalizeEmail(input: string): string {
+  return input.trim().toLowerCase();
+}
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+
+export function isValidEmail(input: string): boolean {
+  return EMAIL_REGEX.test(input.trim());
+}
+
+/** `name@example.com` -> `n***@example.com`, so a code screen leaks less. */
+export function maskEmail(email: string): string {
+  const normalized = normalizeEmail(email);
+  const at = normalized.indexOf('@');
+  if (at <= 0) return normalized;
+  const name = normalized.slice(0, at);
+  const visible = name.slice(0, 1);
+  return `${visible}${'*'.repeat(Math.max(1, name.length - 1))}${normalized.slice(at)}`;
+}
+
 export const BD_PHONE_REGEX = /^(?:\+?880|0)1[3-9]\d{8}$/;
 
 export function isValidBdPhone(input: string): boolean {
