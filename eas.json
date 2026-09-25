@@ -14,7 +14,10 @@
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/customer",
-        "EXPO_PUBLIC_ENVIRONMENT": "development"
+        "EXPO_PUBLIC_ENVIRONMENT": "development",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://vslediphrlrlhrormmxh.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzbGVkaXBocmxybGhyb3JtbXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMzk1NTAsImV4cCI6MjEwNTkxNTU1MH0.ipb8bhkXDJP91zR0U2bvLsvIi96a-4LUovtftxxGJeE",
+        "EXPO_PUBLIC_SUPABASE_READS_ENABLED": "false"
       }
     },
     "preview": {
@@ -25,7 +28,10 @@
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/customer",
-        "EXPO_PUBLIC_ENVIRONMENT": "preview"
+        "EXPO_PUBLIC_ENVIRONMENT": "preview",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://vslediphrlrlhrormmxh.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzbGVkaXBocmxybGhyb3JtbXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMzk1NTAsImV4cCI6MjEwNTkxNTU1MH0.ipb8bhkXDJP91zR0U2bvLsvIi96a-4LUovtftxxGJeE",
+        "EXPO_PUBLIC_SUPABASE_READS_ENABLED": "false"
       }
     },
     "production": {
@@ -36,7 +42,10 @@
       },
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/customer",
-        "EXPO_PUBLIC_ENVIRONMENT": "production"
+        "EXPO_PUBLIC_ENVIRONMENT": "production",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://vslediphrlrlhrormmxh.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZzbGVkaXBocmxybGhyb3JtbXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAzMzk1NTAsImV4cCI6MjEwNTkxNTU1MH0.ipb8bhkXDJP91zR0U2bvLsvIi96a-4LUovtftxxGJeE",
+        "EXPO_PUBLIC_SUPABASE_READS_ENABLED": "false"
       }
     }
   },

@@ -21,6 +21,24 @@ npm run android      # dev client / local native build
 npm run verify       # typecheck + lint + tests
 ```
 
+### Running against local mock data
+
+The real Supabase project cannot currently create accounts (see below), so the
+whole app can be run and verified offline:
+
+```bash
+npm run dev:mock      # terminal 1 — mock Supabase + the /customer API on :4000
+npm run dev:mock:app  # terminal 2 — the app, pointed at the mock
+```
+
+Sign in with `asifghe78@gmail.com` / `Passw0rd!`, or create a new account.
+
+The mock refuses to start when `NODE_ENV=production`, refuses to bind anything
+but loopback without `--allow-remote`, and `eas.json` pins the real project URL
+in every profile — so no build can point at it. It also refuses writes to every
+table, mirroring the RLS policies, and a payment only reaches `SUCCESS` through
+an explicit stand-in for a verified gateway callback.
+
 `npm run prebuild` regenerates the native project. Production builds go through
 EAS (`eas.json` has `development`, `preview`, `production` profiles).
 
@@ -73,14 +91,16 @@ __tests__/               jest suites
 
 ## Security model
 
-**Authentication.** Passwordless, and Supabase Auth owns it. The customer
-enters an email address, Supabase mails a 6-digit code, and the code is
-exchanged for a session. Sign-up and sign-in are the same call — a new address
-simply has no name yet, so the app asks for one afterwards. There is no
-password anywhere in the app, so none can be phished, reused, or leaked from a
-breached database. Addresses are normalized (trimmed, lowercased) inside the
-store, not by callers, so `Ayesha@Example.com` and `ayesha@example.com` can
-never become two accounts.
+**Authentication.** Supabase Auth owns it: the customer enters an email address
+and a password. Sign-up and sign-in both go through
+`signUp` / `signInWithPassword`. Sign-up and sign-in are the same call — a new address
+simply has no name yet, so the app asks for one afterwards. Addresses are
+normalized (trimmed, lowercased) inside the store, not by callers, so
+`Ayesha@Example.com` and `ayesha@example.com` can never become two accounts.
+Password strength is enforced on the device before transmission (8+ characters
+with upper, lower and a digit), the password is never persisted or logged, and
+every failure returns one message so the endpoint cannot be used to discover
+which addresses have accounts.
 
 Supabase is the identity provider because the backend has no `/auth/*` routes to
 call, and because RLS is evaluated against `auth.uid()` — without a real session
@@ -91,11 +111,10 @@ The client owns no refresh logic: a 401 means the session is gone, and the only
 honest response is to sign out. The Supabase session itself lives in
 AsyncStorage, since that is what it is; the app stores no other secret.
 
-> **Live state: the Supabase email provider has its signup toggle off**
-> (`otp_disabled`), and its built-in mailer is rate limited to a handful of
-> messages an hour. Both must be fixed in the Supabase dashboard — Authentication
-> → Sign In / Providers → Email, plus a custom SMTP provider — before sign-in
-> works for real customers.
+> **Live state: the project's built-in mailer is rate limited to a handful of
+> messages an hour**, which currently blocks the confirmation and reset emails
+> signup depends on. Add a custom SMTP provider (Supabase → Settings → Providers
+> → Email → SMTP) before real customers sign up.
 
 **Authorization.** Requests are scoped by the session token alone. The app never
 sends `customerId`, `deviceId` or `contractId` to authorize anything, and uses

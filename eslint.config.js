@@ -18,6 +18,7 @@ module.exports = defineConfig([
       'jest.config.js',
       'eslint.config.js',
       'scripts/**/*.{js,mjs}',
+      'mock-server/**/*.mjs',
       '**/__tests__/**/*.{ts,tsx}',
     ],
     languageOptions: {

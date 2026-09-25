@@ -98,7 +98,9 @@ describe('localization', () => {
   });
 
   it('interpolates parameters', () => {
-    expect(t('auth.welcomeBack', { phone: '880******678' })).toContain('880******678');
+    expect(t('auth.welcomeBack', { email: 'a*****@example.com' })).toContain(
+      'a*****@example.com',
+    );
   });
 
   it('falls back to English for an unknown key', () => {
@@ -109,6 +111,6 @@ describe('localization', () => {
     const bn = createTranslator('bn');
     expect(bn('common.retry')).toBe('আবার চেষ্টা');
     expect(bn('states.RESTRICTED')).toBe('সীমাবদ্ধ');
-    expect(bn('auth.invalidPhone')).toBe('সঠিক বাংলাদেশি মোবাইল নম্বর দিন।');
+    expect(bn('auth.invalidEmail')).toBe('সঠিক ইমেইল ঠিকানা দিন।');
   });
 });

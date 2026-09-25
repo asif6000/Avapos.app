@@ -31,21 +31,22 @@ export const en = {
   auth: {
     signIn: 'Sign in',
     signOut: 'Sign out',
-    phone: 'Mobile number',
-    phonePlaceholder: '01XXXXXXXXX',
+    email: 'Email address',
     password: 'Password',
     confirmPassword: 'Confirm password',
     fullName: 'Full name',
-    email: 'Email',
     deviceName: 'Device model',
     createAccount: 'Create account',
     noAccount: "Don't have an account?",
     haveAccount: 'Already have an account?',
-    welcomeBack: 'Signed in as {phone}',
+    welcomeBack: 'Signed in as {email}',
     weakPassword: 'Use at least 8 characters, with upper case, lower case and a number.',
     passwordRules: 'At least 8 characters, with upper case, lower case and a number.',
     passwordMismatch: 'The two passwords do not match.',
-    invalidPhone: 'Enter a valid Bangladeshi mobile number.',
+    invalidEmail: 'Enter a valid email address.',
+    checkInboxTitle: 'Confirm your email',
+    checkInboxBody:
+      'Your account is created. Open the confirmation link we emailed you, then sign in.',
     sessionExpired: 'Your session expired. Please sign in again.',
   },
   dashboard: {
@@ -207,7 +208,7 @@ export const en = {
   supabaseLink: {
     title: 'How your data is read',
     explain:
-      'You sign in with your mobile number and a password. That sign-in is what lets our database show only your own records to you — every request is filtered by your account, and nothing you do here can change a payment or your device status.',
+      'You sign in with your email address and a password. That sign-in is what lets our database show only your own records to you — every request is filtered by your account, and nothing you do here can change a payment or your device status.',
     status: 'Sign-in service',
     directReads: 'Direct record access',
     identity: 'Sign-in method',
@@ -215,12 +216,12 @@ export const en = {
     readsDisabled:
       'Direct record access is switched off until database access rules pass verification. The app is reading through the server in the meantime.',
     state: {
-      configured: 'Supabase Auth — phone and password',
+      configured: 'Supabase Auth — email and password',
       disabled: 'Not configured for this build',
       enabled: 'Enabled — your records only',
       off: 'Off — reading through the server',
       linked: 'Enabled — your records only',
-      emailCode: 'Mobile number and password',
+      emailCode: 'Email address and password',
     },
   },
   states: {

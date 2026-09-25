@@ -9,15 +9,15 @@ import { z } from 'zod';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
-import { isValidBdPhone, passwordProblems } from '@/utils/format';
+import { isValidEmail, passwordProblems } from '@/utils/format';
 
 const schema = z
   .object({
     fullName: z.string().min(3, 'required'),
-    phone: z
+    email: z
       .string()
       .min(1, 'required')
-      .refine((value) => isValidBdPhone(value), { message: 'phone' }),
+      .refine((value) => isValidEmail(value), { message: 'email' }),
     // Strength is checked on the device, so a weak password is never transmitted.
     password: z
       .string()
@@ -41,6 +41,7 @@ export default function RegisterScreen() {
   const setDisplayName = useAuthStore((state) => state.setDisplayName);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
 
   const {
     control,
@@ -50,7 +51,7 @@ export default function RegisterScreen() {
     resolver: zodResolver(schema),
     defaultValues: {
       fullName: '',
-      phone: '',
+      email: '',
       password: '',
       confirmPassword: '',
       deviceName: '',
@@ -63,8 +64,8 @@ export default function RegisterScreen() {
 
   const errorText = (message?: string) => {
     switch (message) {
-      case 'phone':
-        return t('auth.invalidPhone');
+      case 'email':
+        return t('auth.invalidEmail');
       case 'weak':
         return t('auth.weakPassword');
       case 'mismatch':
@@ -78,15 +79,20 @@ export default function RegisterScreen() {
     setSubmitting(true);
     setNotice(null);
     try {
-      const profile = await signUp(values.phone, values.password);
+      const profile = await signUp(values.email, values.password);
       // Held in memory only. The name is not written to `profiles` from the
       // device: that table is server-authoritative, and while RLS is being
       // fixed a client write there would be an unauthenticated write to
       // customer data.
       setDisplayName(values.fullName);
-      if (profile.isNewUser) {
+      if (profile.confirmed) {
         router.replace('/(tabs)');
+        return;
       }
+      // The account exists but the address is not confirmed yet, so there is no
+      // session. Say so, and send them to sign in rather than dropping them on a
+      // blank dashboard.
+      setAwaitingConfirmation(true);
     } catch {
       setNotice(useAuthStore.getState().error);
     } finally {
@@ -101,6 +107,29 @@ export default function RegisterScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+          {awaitingConfirmation ? (
+            <View style={styles.confirmed}>
+              <Text
+                variant="headlineSmall"
+                style={{ color: theme.colors.primary, fontWeight: '700' }}
+              >
+                {t('auth.checkInboxTitle')}
+              </Text>
+              <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+                {t('auth.checkInboxBody')}
+              </Text>
+              <Button
+                mode="contained"
+                onPress={() => router.replace('/(auth)/login')}
+                contentStyle={styles.buttonContent}
+                style={styles.button}
+                testID="register-goto-login"
+              >
+                {t('auth.signIn')}
+              </Button>
+            </View>
+          ) : (
+            <>
           <Text variant="headlineSmall" style={{ color: theme.colors.onSurface, fontWeight: '700' }}>
             {t('auth.createAccount')}
           </Text>
@@ -129,24 +158,25 @@ export default function RegisterScreen() {
 
           <Controller
             control={control}
-            name="phone"
+            name="email"
             render={({ field: { onChange, onBlur, value } }) => (
               <View>
                 <TextInput
                   mode="outlined"
-                  label={t('auth.phone')}
-                  placeholder={t('auth.phonePlaceholder')}
+                  label={t('auth.email')}
+                  placeholder="name@example.com"
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
+                  keyboardType="email-address"
+                  autoComplete="email"
                   autoCapitalize="none"
-                  error={Boolean(errors.phone)}
-                  testID="register-phone"
+                  autoCorrect={false}
+                  error={Boolean(errors.email)}
+                  testID="register-email"
                 />
-                <HelperText type="error" visible={Boolean(errors.phone)}>
-                  {errorText(errors.phone?.message)}
+                <HelperText type="error" visible={Boolean(errors.email)}>
+                  {errorText(errors.email?.message)}
                 </HelperText>
               </View>
             )}
@@ -242,6 +272,8 @@ export default function RegisterScreen() {
               {t('auth.haveAccount')}
             </Button>
           </View>
+            </>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -258,4 +290,5 @@ const styles = StyleSheet.create({
   button: { marginTop: 12, borderRadius: 999 },
   buttonContent: { height: 52 },
   footer: { marginTop: 8, alignItems: 'center' },
+  confirmed: { gap: 12, paddingTop: 40 },
 });

@@ -23,14 +23,14 @@ const authMock = {
   signOut: signOut as jest.MockedFunction<typeof signOut>,
 };
 
-const session = { userId: 'u-1', phone: '+8801712345678', accessToken: 'supabase-jwt' };
-const identity = { userId: 'u-1', phone: '+8801712345678', isNewUser: false };
+const session = { userId: 'u-1', email: 'ayesha@example.com', accessToken: 'supabase-jwt' };
+const identity = { userId: 'u-1', email: 'ayesha@example.com', isNewUser: false, hasSession: true };
 
 function resetStore() {
-  useAuthStore.setState({ status: 'loading', profile: null, error: null, lastPhone: null });
+  useAuthStore.setState({ status: 'loading', profile: null, error: null, lastEmail: null });
 }
 
-describe('auth store (phone and password)', () => {
+describe('auth store (email and password)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetStore();
@@ -49,22 +49,22 @@ describe('auth store (phone and password)', () => {
     expect(useAuthStore.getState().status).toBe('authenticated');
     expect(useAuthStore.getState().profile).toMatchObject({
       userId: 'u-1',
-      phone: '+8801712345678',
+      email: 'ayesha@example.com',
     });
   });
 
-  it('normalizes the number so one number is always one account', async () => {
+  it('normalizes the address so one address is always one account', async () => {
     authMock.signIn.mockResolvedValue({ ok: true, value: identity });
 
-    await useAuthStore.getState().signIn('  +880 1712-345678 ', 'Sup3rSecret!');
+    await useAuthStore.getState().signIn('  Ayesha@Example.COM ', 'Sup3rSecret!');
 
-    expect(authMock.signIn).toHaveBeenCalledWith('8801712345678', 'Sup3rSecret!');
+    expect(authMock.signIn).toHaveBeenCalledWith('ayesha@example.com', 'Sup3rSecret!');
   });
 
   it('signs in and records the Supabase user id', async () => {
     authMock.signIn.mockResolvedValue({ ok: true, value: identity });
 
-    const profile = await useAuthStore.getState().signIn('01712345678', 'Sup3rSecret!');
+    const profile = await useAuthStore.getState().signIn('ayesha@example.com', 'Sup3rSecret!');
 
     expect(profile.userId).toBe('u-1');
     expect(useAuthStore.getState().status).toBe('authenticated');
@@ -73,7 +73,7 @@ describe('auth store (phone and password)', () => {
   it('never keeps the password anywhere in the store', async () => {
     authMock.signIn.mockResolvedValue({ ok: true, value: identity });
 
-    await useAuthStore.getState().signIn('01712345678', 'Sup3rSecret!');
+    await useAuthStore.getState().signIn('ayesha@example.com', 'Sup3rSecret!');
 
     expect(JSON.stringify(useAuthStore.getState())).not.toContain('Sup3rSecret!');
   });
@@ -85,7 +85,7 @@ describe('auth store (phone and password)', () => {
     });
 
     await expect(
-      useAuthStore.getState().signIn('01712345678', 'wrong-password'),
+      useAuthStore.getState().signIn('ayesha@example.com', 'wrong-password'),
     ).rejects.toThrow();
 
     expect(useAuthStore.getState().error).toBe('That mobile number or password is not correct.');
@@ -93,32 +93,53 @@ describe('auth store (phone and password)', () => {
   });
 
   it('creates an account on sign-up', async () => {
-    authMock.signUp.mockResolvedValue({ ok: true, value: { ...identity, isNewUser: true } });
+    authMock.signUp.mockResolvedValue({
+      ok: true,
+      value: { ...identity, isNewUser: true, hasSession: true },
+    });
 
-    const profile = await useAuthStore.getState().signUp('01712345678', 'Sup3rSecret!');
+    const profile = await useAuthStore.getState().signUp('new@example.com', 'Sup3rSecret!');
 
-    expect(authMock.signUp).toHaveBeenCalledWith('8801712345678', 'Sup3rSecret!');
+    expect(authMock.signUp).toHaveBeenCalledWith('new@example.com', 'Sup3rSecret!');
     expect(profile.isNewUser).toBe(true);
+    expect(useAuthStore.getState().status).toBe('authenticated');
+  });
+
+  it('does not claim a session while the address is unconfirmed', async () => {
+    authMock.signUp.mockResolvedValue({
+      ok: true,
+      value: { ...identity, isNewUser: true, hasSession: false },
+    });
+
+    const profile = await useAuthStore.getState().signUp('new@example.com', 'Sup3rSecret!');
+
+    expect(profile.confirmed).toBe(false);
+    // No session means no authorization, so the app must not render as signed in.
+    expect(useAuthStore.getState().status).not.toBe('authenticated');
   });
 
   it('reports a number already in use without confirming it exists', async () => {
     authMock.signUp.mockResolvedValue({
       ok: false,
-      message: 'That number is already in use. Try signing in, or use another number.',
+      message: 'That email is already in use. Try signing in instead.',
     });
 
     await expect(
       useAuthStore.getState().signUp('01712345678', 'Sup3rSecret!'),
     ).rejects.toThrow();
 
-    expect(useAuthStore.getState().error).toBe(
-      'That number is already in use. Try signing in, or use another number.',
-    );
+    expect(useAuthStore.getState().error).toBe('That email is already in use. Try signing in instead.');
   });
 
   it('holds the display name in memory rather than writing to the database', () => {
     useAuthStore.setState({
-      profile: { userId: 'u', phone: '+8801712345678', fullName: '', isNewUser: true },
+      profile: {
+        userId: 'u',
+        email: 'ayesha@example.com',
+        fullName: '',
+        isNewUser: true,
+        confirmed: true,
+      },
     });
 
     useAuthStore.getState().setDisplayName('  Ayesha Rahman  ');
@@ -128,7 +149,7 @@ describe('auth store (phone and password)', () => {
 
   it('clears everything on sign out', async () => {
     authMock.signIn.mockResolvedValue({ ok: true, value: identity });
-    await useAuthStore.getState().signIn('01712345678', 'Sup3rSecret!');
+    await useAuthStore.getState().signIn('ayesha@example.com', 'Sup3rSecret!');
     useAuthStore.getState().setDisplayName('Ayesha Rahman');
 
     await useAuthStore.getState().signOut();

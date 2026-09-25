@@ -25,7 +25,8 @@ export type { HttpMethod, RequestOptions, TokenProvider, UnauthorizedHandler };
  */
 export class ApiClient {
   private readonly origin: string;
-  private readonly fetchImpl: typeof fetch;
+  /** Only set in tests. When absent, the global fetch is resolved per call. */
+  private readonly fetchImpl: typeof fetch | undefined;
   private readonly sleepFn: (ms: number) => Promise<void>;
   private readonly getToken: TokenProvider;
   private readonly onUnauthorized: UnauthorizedHandler;
@@ -38,7 +39,7 @@ export class ApiClient {
     sleep?: (ms: number) => Promise<void>;
   } = {}) {
     this.origin = (options.baseUrl ?? API_BASE_URL).replace(/\/+$/, '');
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = options.fetchImpl;
     this.getToken = options.getToken ?? (async () => null);
     this.onUnauthorized = options.onUnauthorized ?? (() => undefined);
     this.sleepFn = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
@@ -103,7 +104,14 @@ export class ApiClient {
     try {
       let token: string | null = null;
       if (!options.anonymous) {
-        token = await this.getToken();
+        try {
+          token = await this.getToken();
+        } catch {
+          // A token provider that throws is a configuration or session problem,
+          // not a network problem. Reporting it as `network` makes the app look
+          // offline when it is actually unauthenticated.
+          token = null;
+        }
         if (!token) {
           throw new ApiError({
             kind: 'unauthorized',
@@ -119,7 +127,16 @@ export class ApiClient {
       };
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const response = await this.fetchImpl(buildUrl(this.origin, path, options.query), {
+      // Resolved per call, not captured in the constructor: on React Native the
+      // global fetch is installed by the runtime after modules are evaluated, so
+      // a reference captured at construction can be undefined. That made every
+      // request fail as a "network" error without ever leaving the device.
+      const doFetch = this.fetchImpl ?? globalThis.fetch;
+      if (typeof doFetch !== 'function') {
+        throw new ApiError({ kind: 'unknown', message: defaultMessageFor('unknown') });
+      }
+
+      const response = await doFetch(buildUrl(this.origin, path, options.query), {
         method,
         headers,
         signal: controller.signal,

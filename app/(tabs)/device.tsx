@@ -36,6 +36,7 @@ export default function DeviceScreen() {
   const loading = deviceQuery.isLoading || statusQuery.isLoading;
   const error = (deviceQuery.error ?? statusQuery.error) as ApiError | null;
 
+
   const refresh = () => {
     void deviceQuery.refetch();
     void statusQuery.refetch();
@@ -53,7 +54,9 @@ export default function DeviceScreen() {
         <View style={styles.content}>
           <ListSkeleton count={2} />
         </View>
-      ) : error && error.kind !== 'network' ? (
+      ) : error ? (
+        // Same rule as the dashboard: a failed request is an error, never an
+        // empty device list.
         <ErrorState message={error.message} onRetry={refresh} />
       ) : (
         <ScrollView

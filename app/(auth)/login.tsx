@@ -9,13 +9,13 @@ import { z } from 'zod';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
-import { isValidBdPhone, maskPhone } from '@/utils/format';
+import { isValidEmail, maskEmail } from '@/utils/format';
 
 const schema = z.object({
-  phone: z
+  email: z
     .string()
     .min(1, 'required')
-    .refine((value) => isValidBdPhone(value), { message: 'phone' }),
+    .refine((value) => isValidEmail(value), { message: 'email' }),
   password: z.string().min(1, 'required'),
 });
 
@@ -26,7 +26,7 @@ export default function LoginScreen() {
   const theme = useTheme();
   const router = useRouter();
   const signIn = useAuthStore((state) => state.signIn);
-  const lastPhone = useAuthStore((state) => state.lastPhone);
+  const lastEmail = useAuthStore((state) => state.lastEmail);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -36,17 +36,17 @@ export default function LoginScreen() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { phone: lastPhone ?? '', password: '' },
+    defaultValues: { email: lastEmail ?? '', password: '' },
   });
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true);
     setNotice(null);
     try {
-      const profile = await signIn(values.phone, values.password);
-      if (profile.isNewUser) {
-        router.replace('/(auth)/register');
-      }
+      await signIn(values.email, values.password);
+      // Straight into the app: staying on the form after a successful sign-in
+      // looks like nothing happened.
+      router.replace('/(tabs)');
     } catch {
       // The store holds a customer-safe message; never echo a driver error.
       setNotice(useAuthStore.getState().error);
@@ -76,24 +76,25 @@ export default function LoginScreen() {
 
           <Controller
             control={control}
-            name="phone"
+            name="email"
             render={({ field: { onChange, onBlur, value } }) => (
               <View>
                 <TextInput
                   mode="outlined"
-                  label={t('auth.phone')}
-                  placeholder={t('auth.phonePlaceholder')}
+                  label={t('auth.email')}
+                  placeholder="name@example.com"
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
-                  keyboardType="phone-pad"
-                  autoComplete="tel"
+                  keyboardType="email-address"
+                  autoComplete="email"
                   autoCapitalize="none"
-                  error={Boolean(errors.phone)}
-                  testID="login-phone"
+                  autoCorrect={false}
+                  error={Boolean(errors.email)}
+                  testID="login-email"
                 />
-                <HelperText type="error" visible={Boolean(errors.phone)}>
-                  {errors.phone?.message === 'phone' ? t('auth.invalidPhone') : t('common.required')}
+                <HelperText type="error" visible={Boolean(errors.email)}>
+                  {errors.email?.message === 'email' ? t('auth.invalidEmail') : t('common.required')}
                 </HelperText>
               </View>
             )}
@@ -140,9 +141,9 @@ export default function LoginScreen() {
             </Button>
           </View>
 
-          {lastPhone ? (
+          {lastEmail ? (
             <Text variant="bodySmall" style={styles.note}>
-              {t('auth.welcomeBack', { phone: maskPhone(lastPhone) })}
+              {t('auth.welcomeBack', { email: maskEmail(lastEmail) })}
             </Text>
           ) : null}
         </View>

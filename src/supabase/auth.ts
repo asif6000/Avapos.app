@@ -1,14 +1,15 @@
 import { getSupabaseClient, isSupabaseAuthReady } from './client';
-import { toE164 } from '@/utils/format';
+import { normalizeEmail } from '@/utils/format';
 
 /**
  * Phone + password sign-in, through Supabase Auth.
  *
  * WHY THIS EXISTS
  *
- * The project's email provider is switched off and its built-in mailer is rate
- * limited to a handful of messages an hour, so an emailed code cannot be the
- * way in. The Phone provider and Twilio are the alternative.
+ * Sign-in is by email address and password. The project's Email provider is
+ * enabled, so unlike the OTP path this does not depend on the mailer being able
+ * to deliver a code on demand — it only matters when a confirmation or reset
+ * email has to go out.
  *
  * THE TRADE-OFF, STATED PLAINLY
  *
@@ -33,8 +34,14 @@ export type AuthResult<T> = { ok: true; value: T } | { ok: false; message: strin
 
 export interface Identity {
   userId: string;
-  phone: string;
+  email: string;
   isNewUser: boolean;
+  /**
+   * False when the account exists but has no session yet because the address
+   * still has to be confirmed. The UI must not pretend the customer is signed
+   * in in that case.
+   */
+  hasSession: boolean;
 }
 
 /** One message for every failure, so this cannot enumerate accounts. */
@@ -49,47 +56,27 @@ function classify(error: { message: string; status?: number } | null): string {
     return GENERIC;
   }
   if (detail.includes('already') || detail.includes('registered') || detail.includes('exists')) {
-    return 'That number is already in use. Try signing in, or use another number.';
+    return 'That email is already in use. Try signing in instead.';
   }
-  if (detail.includes('rate limit') || error?.status === 429) {
+  if (detail.includes('not confirmed') || detail.includes('email not confirmed')) {
+    return 'That email has not been confirmed yet. Check your inbox.';
+  }
+  if (detail.includes('rate limit') || detail.includes('over_email') || error?.status === 429) {
     return 'Too many attempts. Please wait a few minutes and try again.';
   }
-  if (detail.includes('phone') && detail.includes('confirm')) {
-    return 'That number has not been confirmed yet.';
-  }
   if (detail.includes('disabled') || detail.includes('not enabled')) {
-    return 'Phone sign-in is not switched on for this service yet.';
+    return 'Sign-in is not switched on for this service yet.';
   }
   return 'We could not complete that. Please try again.';
 }
 
-export async function signIn(phone: string, password: string): Promise<AuthResult<Identity>> {
+export async function signIn(email: string, password: string): Promise<AuthResult<Identity>> {
   if (!isSupabaseAuthReady()) {
     return { ok: false, message: 'Sign-in is not available in this build.' };
   }
 
   const { data, error } = await getSupabaseClient().auth.signInWithPassword({
-    phone: toE164(phone),
-    password,
-  });
-
-  if (error || !data.user) {
-    return { ok: false, message: classify(error) };
-  }
-
-  return {
-    ok: true,
-    value: { userId: data.user.id, phone: data.user.phone ?? toE164(phone), isNewUser: false },
-  };
-}
-
-export async function signUp(phone: string, password: string): Promise<AuthResult<Identity>> {
-  if (!isSupabaseAuthReady()) {
-    return { ok: false, message: 'Sign-in is not available in this build.' };
-  }
-
-  const { data, error } = await getSupabaseClient().auth.signUp({
-    phone: toE164(phone),
+    email: normalizeEmail(email),
     password,
   });
 
@@ -101,16 +88,43 @@ export async function signUp(phone: string, password: string): Promise<AuthResul
     ok: true,
     value: {
       userId: data.user.id,
-      phone: data.user.phone ?? toE164(phone),
-      // A user created seconds ago has no session and no previous sign-in.
-      isNewUser: data.session === null,
+      email: data.user.email ?? normalizeEmail(email),
+      isNewUser: false,
+      hasSession: true,
+    },
+  };
+}
+
+export async function signUp(email: string, password: string): Promise<AuthResult<Identity>> {
+  if (!isSupabaseAuthReady()) {
+    return { ok: false, message: 'Sign-in is not available in this build.' };
+  }
+
+  const { data, error } = await getSupabaseClient().auth.signUp({
+    email: normalizeEmail(email),
+    password,
+  });
+
+  if (error || !data.user) {
+    return { ok: false, message: classify(error) };
+  }
+
+  return {
+    ok: true,
+    value: {
+      userId: data.user.id,
+      email: data.user.email ?? normalizeEmail(email),
+      isNewUser: true,
+      // No session means the address still has to be confirmed, so the app must
+      // not assume the customer is signed in yet.
+      hasSession: data.session !== null,
     },
   };
 }
 
 export interface SessionSnapshot {
   userId: string;
-  phone: string;
+  email: string;
   accessToken: string;
 }
 
@@ -121,7 +135,7 @@ export async function getSession(): Promise<SessionSnapshot | null> {
   if (!session) return null;
   return {
     userId: session.user.id,
-    phone: session.user.phone ?? '',
+    email: session.user.email ?? '',
     accessToken: session.access_token,
   };
 }
@@ -129,8 +143,14 @@ export async function getSession(): Promise<SessionSnapshot | null> {
 /** The bearer token for the REST API. See `api/instance.ts`. */
 export async function getAccessToken(): Promise<string | null> {
   if (!isSupabaseAuthReady()) return null;
-  const { data } = await getSupabaseClient().auth.getSession();
-  return data.session?.access_token ?? null;
+  try {
+    const { data } = await getSupabaseClient().auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    // No token is a truthful answer. Throwing here would surface as a network
+    // error and make the app look offline instead of signed out.
+    return null;
+  }
 }
 
 export function onAuthStateChange(
@@ -143,7 +163,7 @@ export function onAuthStateChange(
       session
         ? {
             userId: session.user.id,
-            phone: session.user.phone ?? '',
+            email: session.user.email ?? '',
             accessToken: session.access_token,
           }
         : null,
@@ -157,14 +177,14 @@ export async function signOut(): Promise<void> {
   await getSupabaseClient().auth.signOut();
 }
 
-/** Sends an SMS confirmation. Only needed while the number is unconfirmed. */
-export async function sendPhoneConfirmation(phone: string): Promise<AuthResult<null>> {
+/** Re-sends the confirmation email. Only needed while it is unconfirmed. */
+export async function resendConfirmation(email: string): Promise<AuthResult<null>> {
   if (!isSupabaseAuthReady()) {
     return { ok: false, message: 'Sign-in is not available in this build.' };
   }
   const { error } = await getSupabaseClient().auth.resend({
-    type: 'sms',
-    phone: toE164(phone),
+    type: 'signup',
+    email: normalizeEmail(email),
   });
   if (error) return { ok: false, message: classify(error) };
   return { ok: true, value: null };

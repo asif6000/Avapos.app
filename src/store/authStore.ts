@@ -2,12 +2,12 @@ import { create } from 'zustand';
 
 import { getSession, onAuthStateChange, signIn, signOut, signUp } from '@/supabase/auth';
 import { canReadDirectly } from '@/supabase/client';
-import { normalizePhone } from '@/utils/format';
+import { normalizeEmail } from '@/utils/format';
 
 /**
  * Authentication state, backed by Supabase Auth.
  *
- * Phone number and password. The session's
+ * Email address and password. The session's
  * JWT is what row level security evaluates, so a signed-in customer gets a real
  * `auth.uid()` instead of NULL — which is what lets the policies in
  * `sql/03-owner-policies.sql` match rows to a person.
@@ -21,22 +21,24 @@ export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
 export interface Profile {
   userId: string;
-  phone: string;
+  email: string;
   fullName: string;
   isNewUser: boolean;
+  /** False while the address is still awaiting email confirmation. */
+  confirmed: boolean;
 }
 
 interface AuthState {
   status: AuthStatus;
   profile: Profile | null;
   error: string | null;
-  /** True once the customer has chosen a number, so the app can prefill it. */
-  lastPhone: string | null;
+  /** Remembered so the sign-in screen can prefill the last address used. */
+  lastEmail: string | null;
   /** False until `verify:rls` passes; drives the "direct reads" notice. */
   directReadsEnabled: boolean;
   bootstrap: () => Promise<void>;
-  signIn: (phone: string, password: string) => Promise<Profile>;
-  signUp: (phone: string, password: string) => Promise<Profile>;
+  signIn: (email: string, password: string) => Promise<Profile>;
+  signUp: (email: string, password: string) => Promise<Profile>;
   setDisplayName: (fullName: string) => void;
   signOut: () => Promise<void>;
   clearError: () => void;
@@ -47,7 +49,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   status: 'loading',
   profile: null,
   error: null,
-  lastPhone: null,
+  lastEmail: null,
   directReadsEnabled: canReadDirectly(),
 
   async bootstrap() {
@@ -60,23 +62,24 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({
       status: 'authenticated',
-      lastPhone: session.phone,
+      lastEmail: session.email,
       profile: {
         userId: session.userId,
-        phone: session.phone,
+        email: session.email,
         fullName: get().profile?.fullName ?? '',
         isNewUser: false,
+        confirmed: true,
       },
       error: null,
     });
   },
 
-  async signIn(rawPhone, password) {
+  async signIn(rawEmail, password) {
     set({ error: null });
-    // Normalized here, not by callers, so `01712345678` and `+8801712345678`
-    // can never become two accounts.
-    const phone = normalizePhone(rawPhone);
-    const result = await signIn(phone, password);
+    // Normalized here, not by callers, so `Ayesha@Example.com` and
+    // `ayesha@example.com` can never become two accounts.
+    const email = normalizeEmail(rawEmail);
+    const result = await signIn(email, password);
 
     if (!result.ok) {
       set({ error: result.message });
@@ -85,19 +88,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const profile: Profile = {
       userId: result.value.userId,
-      phone: result.value.phone,
+      email: result.value.email,
       fullName: '',
       isNewUser: false,
+      confirmed: result.value.hasSession,
     };
 
-    set({ status: 'authenticated', profile, lastPhone: phone, error: null });
+    set({ status: 'authenticated', profile, lastEmail: email, error: null });
     return profile;
   },
 
-  async signUp(rawPhone, password) {
+  async signUp(rawEmail, password) {
     set({ error: null });
-    const phone = normalizePhone(rawPhone);
-    const result = await signUp(phone, password);
+    const email = normalizeEmail(rawEmail);
+    const result = await signUp(email, password);
 
     if (!result.ok) {
       set({ error: result.message });
@@ -106,14 +110,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     const profile: Profile = {
       userId: result.value.userId,
-      phone: result.value.phone,
+      email: result.value.email,
       fullName: '',
-      isNewUser: result.value.isNewUser,
+      isNewUser: true,
+      confirmed: result.value.hasSession,
     };
 
-    // A brand new account may have no session yet if the number still needs
-    // confirming, so the UI must not assume it is signed in.
-    set({ status: 'authenticated', profile, lastPhone: phone, error: null });
+    // `status` stays unauthenticated until the address is confirmed: there is no
+    // session to authorize requests with, and pretending otherwise would let the
+    // app render empty screens.
+    if (result.value.hasSession) {
+      set({ status: 'authenticated', profile, lastEmail: email, error: null });
+    } else {
+      set({ lastEmail: email, error: null });
+    }
     return profile;
   },
 
@@ -151,9 +161,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           status: 'authenticated',
           profile: {
             userId: session.userId,
-            phone: session.phone,
+            email: session.email,
             fullName: '',
             isNewUser: false,
+            confirmed: true,
           },
         });
       }

@@ -19,13 +19,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function makeClient(
-  fetchImpl: jest.Mock,
+  fetchImpl: jest.Mock | undefined,
   getToken: () => Promise<string | null> = async () => 'supabase-jwt',
   onUnauthorized: () => void | Promise<void> = () => undefined,
 ) {
   return new ApiClient({
     baseUrl: BASE,
-    fetchImpl: fetchImpl as unknown as typeof fetch,
+    fetchImpl: fetchImpl as unknown as typeof fetch | undefined,
     getToken,
     onUnauthorized,
     sleep: async () => undefined,
@@ -164,6 +164,28 @@ describe('ApiClient', () => {
 
     const [url] = fetchImpl.mock.calls[0] as unknown as [string];
     expect(url).toBe(`${BASE}/payments?page=2&perPage=20`);
+  });
+
+  it('resolves the global fetch at call time, not when constructed', async () => {
+    // On React Native the global fetch is installed after modules are evaluated.
+    // Capturing it in the constructor left every request failing as a network
+    // error without ever leaving the device.
+    const original = globalThis.fetch;
+    const calls: string[] = [];
+    // A client built while the global is unusable must still work later.
+    (globalThis as { fetch?: unknown }).fetch = undefined;
+    const client = makeClient(undefined as unknown as jest.Mock);
+    (globalThis as { fetch?: unknown }).fetch = ((url: string) => {
+      calls.push(String(url));
+      return Promise.resolve(jsonResponse({ id: 'CUST-1' }));
+    }) as unknown as typeof fetch;
+
+    try {
+      await expect(client.get('/profile')).resolves.toEqual({ id: 'CUST-1' });
+      expect(calls).toEqual([`${BASE}/profile`]);
+    } finally {
+      globalThis.fetch = original;
+    }
   });
 
   it('classifies HTTP statuses into customer-safe error kinds', () => {

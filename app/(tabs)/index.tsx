@@ -39,7 +39,10 @@ export default function DashboardScreen() {
     );
   }
 
-  if (error instanceof ApiError && error.kind !== 'network' && error.kind !== 'offline') {
+  // A failed request must never be rendered as "no device", "no plan" or
+  // "৳0". Those read as facts about the customer's account, and they would hide
+  // an outage behind a perfectly plausible-looking screen.
+  if (error) {
     return (
       <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
         <AppHeader title={t('common.appName')} back={false} />
