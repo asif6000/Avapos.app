@@ -28,7 +28,11 @@ EAS (`eas.json` has `development`, `preview`, `production` profiles).
 | --- | --- | --- |
 | `EXPO_PUBLIC_API_BASE_URL` | no (defaults to the production API) | Public API base URL |
 | `EXPO_PUBLIC_ENVIRONMENT` | no | `development` / `preview` / `production` label |
-| `EAS_PROJECT_ID` | for EAS | EAS project id |
+| `EXPO_PUBLIC_SUPABASE_URL` | no | Supabase project URL for direct RLS-scoped reads |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | no | **Publishable / `anon` key only.** Never `service_role` |
+| `EXPO_PUBLIC_SUPABASE_READS_ENABLED` | no (defaults to `false`) | Must be `true` only after `npm run verify:rls` passes |
+
+Copy `.env.example` to `.env.local` to set these. `.env.local` is gitignored.
 
 Nothing else belongs in the app. Gateway secrets, Supabase service-role keys,
 admin credentials and database passwords live on the backend and must never be
@@ -92,6 +96,16 @@ UI into an unlocked, paid or restored state on its own.
 
 **Offline.** Cached data stays visible, but no financial or device-management
 decision is made offline. Reconnecting triggers a single refetch.
+
+**Supabase.** The app reads the installment schedule and notification centre
+directly from Supabase through PostgREST, scoped by the customer's Supabase JWT
+and constrained by RLS. Reads are fail-closed: they stay disabled until
+`npm run verify:rls` proves an anonymous request cannot read another customer's
+rows, and a `service_role` key in the env is rejected outright. Everything
+privileged — payment order creation, payment verification, device state,
+agreement acceptance, enrollment — stays on the REST API, where the backend
+revalidates the contract. `src/supabase/types.ts` is inferred, not generated:
+regenerate it with `supabase gen types typescript` before relying on it.
 
 **Permissions.** `plugins/withDeviceManagement.ts` strips every Android
 permission outside its allow-list at prebuild time, and `app.config.ts`

@@ -8,7 +8,18 @@ module.exports = defineConfig([
     ignores: ['dist/*', 'node_modules/*', '.expo/*', 'android/*', 'ios/*', 'modules/*'],
   },
   {
-    files: ['jest.setup.js', 'jest.config.js', 'eslint.config.js', '**/__tests__/**/*.{ts,tsx}'],
+    rules: {
+      'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+  {
+    files: [
+      'jest.setup.js',
+      'jest.config.js',
+      'eslint.config.js',
+      'scripts/**/*.{js,mjs}',
+      '**/__tests__/**/*.{ts,tsx}',
+    ],
     languageOptions: {
       globals: {
         jest: 'readonly',
@@ -21,16 +32,23 @@ module.exports = defineConfig([
         global: 'readonly',
         require: 'readonly',
         module: 'writable',
+        process: 'readonly',
+        Buffer: 'readonly',
+        fetch: 'readonly',
         __DEV__: 'readonly',
       },
     },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+      'no-console': 'off',
     },
   },
   {
     rules: {
-      'no-console': ['warn', { allow: ['warn', 'error'] }],
+      '@typescript-eslint/no-require-imports': 'off',
+      // Test harnesses and the RLS verification script are CLIs; printing is
+      // their entire job.
+      'no-console': 'off',
     },
   },
 ]);

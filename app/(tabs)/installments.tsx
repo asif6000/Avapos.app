@@ -9,7 +9,8 @@ import { ListSkeleton } from '@/components/Skeleton';
 import { StatusBadge, type BadgeTone } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
-import { useInstallments, useInstallmentPlan } from '@/hooks/queries';
+import { useInstallmentPlan } from '@/hooks/queries';
+import { useInstallmentSource } from '@/hooks/useDataSources';
 import { useTranslation } from '@/hooks/useTheme';
 import { formatCurrency, formatDate, percentOf } from '@/utils/format';
 import type { InstallmentStatus } from '@/types/domain';
@@ -27,16 +28,16 @@ export default function InstallmentsScreen() {
   const theme = useTheme();
   const router = useRouter();
   const planQuery = useInstallmentPlan();
-  const installmentsQuery = useInstallments();
+  const schedule = useInstallmentSource();
 
   const plan = planQuery.data;
-  const installments = installmentsQuery.data ?? [];
-  const loading = planQuery.isLoading || installmentsQuery.isLoading;
-  const error = (planQuery.error ?? installmentsQuery.error) as ApiError | null;
+  const installments = schedule.data;
+  const loading = planQuery.isLoading || schedule.isLoading;
+  const error = (planQuery.error ?? schedule.error) as ApiError | null;
 
   const refresh = () => {
     void planQuery.refetch();
-    void installmentsQuery.refetch();
+    schedule.refetch();
   };
 
   return (
@@ -58,7 +59,7 @@ export default function InstallmentsScreen() {
           contentContainerStyle={styles.content}
           refreshControl={
             <RefreshControl
-              refreshing={planQuery.isRefetching || installmentsQuery.isRefetching}
+              refreshing={planQuery.isRefetching}
               onRefresh={refresh}
               colors={[theme.colors.primary]}
             />

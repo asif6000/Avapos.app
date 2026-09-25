@@ -2,11 +2,13 @@ import { useRouter } from 'expo-router';
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
+import { ApiError } from '@/api/errors';
 import { AppHeader } from '@/components/AppHeader';
 import { ListSkeleton } from '@/components/Skeleton';
 import { EmptyState, ErrorState } from '@/components/StateViews';
 import { SectionCard } from '@/components/SectionCard';
-import { useMarkAllNotificationsRead, useNotifications } from '@/hooks/queries';
+import { useMarkAllNotificationsRead } from '@/hooks/queries';
+import { useNotificationSource } from '@/hooks/useDataSources';
 import { useTranslation } from '@/hooks/useTheme';
 import { formatDateTime } from '@/utils/format';
 import type { AppNotification, NotificationType } from '@/types/domain';
@@ -16,10 +18,10 @@ export default function NotificationCenterScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
   const router = useRouter();
-  const { data, isLoading, isRefetching, error, refetch } = useNotifications(1);
+  const list = useNotificationSource();
   const markAll = useMarkAllNotificationsRead();
 
-  const items = data?.items ?? [];
+  const items = list.data;
   const hasUnread = items.some((item) => !item.isRead);
 
   const open = (item: AppNotification) => {
@@ -42,12 +44,12 @@ export default function NotificationCenterScreen() {
         }
       />
 
-      {isLoading ? (
+      {list.isLoading ? (
         <View style={styles.content}>
           <ListSkeleton count={4} />
         </View>
-      ) : error && error.kind !== 'network' ? (
-        <ErrorState message={error.message} onRetry={() => void refetch()} />
+      ) : list.error && (list.error as ApiError).kind !== 'network' ? (
+        <ErrorState message={(list.error as ApiError).message} onRetry={list.refetch} />
       ) : items.length === 0 ? (
         <EmptyState title={t('notifications.empty')} />
       ) : (
@@ -57,8 +59,8 @@ export default function NotificationCenterScreen() {
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={() => void refetch()}
+              refreshing={false}
+              onRefresh={list.refetch}
               colors={[theme.colors.primary]}
             />
           }

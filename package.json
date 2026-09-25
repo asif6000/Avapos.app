@@ -18,13 +18,15 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "doctor": "expo-doctor",
-    "verify": "npm run typecheck && npm run lint && npm run test"
+    "verify": "npm run typecheck && npm run lint && npm run test",
+    "verify:rls": "node scripts/verify-rls.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",
     "@expo/vector-icons": "^15.0.2",
     "@hookform/resolvers": "^5.9.1",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@supabase/supabase-js": "^2.117.2",
     "@tanstack/react-query": "^5.103.2",
     "expo": "~57.0.25",
     "expo-application": "~57.0.3",
