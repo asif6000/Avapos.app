@@ -22,13 +22,39 @@ import type { Database } from './types';
  *    fails closed. Authentication is deliberately NOT gated: signing in must
  *    not depend on a read-only feature flag.
  * 3. Nothing here writes to a table. Money, device state, agreement acceptance
- *    and enrollment stay on the REST API, which revalidates the contract and the
- *    gateway callback server-side.
+ *   and enrollment stay on the REST API, which revalidates the contract and the
+ *   gateway callback server-side.
  */
 
-const url = process.env.EXPO_PUBLIC_SUPABASE_URL;
+const configuredUrl = process.env.EXPO_PUBLIC_SUPABASE_URL;
 const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
 const readsEnabled = process.env.EXPO_PUBLIC_SUPABASE_READS_ENABLED === 'true';
+
+/**
+ * `same-origin` means "the origin that served this page".
+ *
+ * It exists for one situation: a web build opened from a phone on a tunnel or a
+ * LAN address, where the only reachable origin is the one serving the app. The
+ * local mock publishes Supabase and the `/customer` API on that same origin, so
+ * the app needs no absolute URL — and being same-origin means the browser makes
+ * no preflight, so it works even against a server that sends no CORS headers.
+ *
+ * Development only, and inert unless the env var says so: `app.config.ts` and
+ * `eas.json` pin the real project URL in every build profile, and a native build
+ * has no `window` to resolve against, so this resolves to nothing there.
+ */
+const SAME_ORIGIN = 'same-origin';
+
+function resolveBase(configured: string | undefined): string | undefined {
+  if (!configured) return undefined;
+  if (configured !== SAME_ORIGIN && !configured.startsWith(`${SAME_ORIGIN}/`)) return configured;
+  if (typeof window === 'undefined' || typeof window.location?.origin !== 'string') {
+    return undefined;
+  }
+  return configured.replace(SAME_ORIGIN, window.location.origin);
+}
+
+export const url = resolveBase(configuredUrl);
 
 export class SupabaseConfigError extends Error {
   constructor(message: string) {

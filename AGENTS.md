@@ -23,8 +23,8 @@ npm run verify       # typecheck + lint + tests
 
 ### Running against local mock data
 
-The real Supabase project cannot currently create accounts (see below), so the
-whole app can be run and verified offline:
+The real Supabase project cannot serve the app yet (see the live state notes
+below), so the whole app can be run and verified offline against the mock:
 
 ```bash
 npm run dev:mock      # terminal 1 — mock Supabase + the /customer API on :4000
@@ -32,6 +32,23 @@ npm run dev:mock:app  # terminal 2 — the app, pointed at the mock
 ```
 
 Sign in with `asifghe78@gmail.com` / `Passw0rd!`, or create a new account.
+
+**From a phone or a second machine**, `127.0.0.1` means *that* machine, so the
+two-terminal setup above cannot work: the phone cannot reach the mock, and the
+tunnel or LAN address only reaches the port serving the app. Two ways out:
+
+```bash
+npm run dev:mock            # terminal 1 — the mock, as above
+npm run dev:mock:proxy      # terminal 2 — dev proxy on :8081 (mock API + Expo)
+npm run dev:mock:app:proxy  # terminal 3 — Expo on :8083 with same-origin env
+```
+
+`scripts/dev-web-proxy.mjs` serves the app and the API from one port, and the app
+is then same-origin with its own API, so a browser makes no preflight and no CORS
+headers are needed. Open whatever address already points at `:8081` — the
+tunnel, or a LAN address — and everything works: all five tabs read the mock's
+assembled views. `EXPO_PUBLIC_SUPABASE_URL=same-origin` is the switch, it
+resolves on web builds only, and no build profile sets it.
 
 **Those credentials exist only in the mock.** A build started any other way —
 `npm run web`, `npm start`, an EAS build — reads `.env.local` and points at the
@@ -46,7 +63,7 @@ and in a dev build the console says which one it was. Check the banner:
 
 `npm run check:signup` reports the same thing for sign-up.
 
-To sign in from a phone, or a second machine, `127.0.0.1` is not reachable — use
+To point a *native* build at a mock on your network instead, use
 `npm run dev:mock:lan`, which binds the LAN interface and prints an address to
 put in `EXPO_PUBLIC_SUPABASE_URL`.
 
@@ -63,9 +80,9 @@ EAS (`eas.json` has `development`, `preview`, `production` profiles).
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `EXPO_PUBLIC_API_BASE_URL` | no (defaults to the production API) | Public API base URL |
+| `EXPO_PUBLIC_API_BASE_URL` | no (defaults to the production API) | Public API base URL. `same-origin/customer` on a web dev build behind the proxy |
 | `EXPO_PUBLIC_ENVIRONMENT` | no | `development` / `preview` / `production` label |
-| `EXPO_PUBLIC_SUPABASE_URL` | no | Supabase project URL for direct RLS-scoped reads |
+| `EXPO_PUBLIC_SUPABASE_URL` | no | Supabase project URL for direct RLS-scoped reads. `same-origin` on a web dev build behind the proxy |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | no | **Publishable / `anon` key only.** Never `service_role` |
 | `EXPO_PUBLIC_SUPABASE_READS_ENABLED` | no (defaults to `false`) | Must be `true` only after `npm run verify:rls` passes |
 
