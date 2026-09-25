@@ -57,7 +57,25 @@ function isMockPath(pathname) {
   );
 }
 
-function forward(request, response, target) {
+/**
+ * A stamp on the bundle URL, regenerated every time the proxy starts.
+ *
+ * Expo's dev bundle is served from a fixed path, so a browser that has it cached
+ * keeps running the build it already has — which, after a configuration change,
+ * means the app quietly keeps talking to the *old* backend and nothing anyone
+ * can see explains why. Adding a stamp to the script URL makes a restart of this
+ * proxy a cache bust, so "restart and reload" is actually enough.
+ */
+const BUNDLE_STAMP = Date.now().toString(36);
+
+function bustBundleStamp(html) {
+  return html.replace(
+    /(src="[^"]*entry\.bundle[^"]*)"/,
+    (_match, src) => `${src}${src.includes('?') ? '&' : '?'}_v=${BUNDLE_STAMP}"`,
+  );
+}
+
+function forward(request, response, target, { stripOrigin = false } = {}) {
   const proxied = httpRequest(
     target,
     {
@@ -67,7 +85,37 @@ function forward(request, response, target) {
       headers: { ...request.headers, host: new URL(target).host },
     },
     (upstream) => {
-      response.writeHead(upstream.statusCode ?? 502, upstream.headers);
+      const headers = { ...upstream.headers };
+      const contentType = String(headers['content-type'] ?? '');
+
+      // The proxy *is* the origin as far as the browser is concerned, so the
+      // upstream app server should not be told where the request came from.
+      // Expo's dev server refuses requests carrying an Origin it does not know,
+      // which is every request coming through a tunnel or a LAN address — it
+      // answers 401 with "conflicting browser extension" and the phone gets a
+      // broken page.
+      if (stripOrigin) {
+        delete headers.origin;
+        delete headers.referer;
+      }
+
+      if (contentType.includes('text/html')) {
+        const chunks = [];
+        upstream.on('data', (chunk) => chunks.push(chunk));
+        upstream.on('end', () => {
+          const body = Buffer.from(bustBundleStamp(Buffer.concat(chunks).toString('utf8')));
+          delete headers['content-length'];
+          headers['content-length'] = String(body.length);
+          // The page must not be cached either, or the stamp never arrives.
+          headers['cache-control'] = 'no-store';
+          response.writeHead(upstream.statusCode ?? 200, headers);
+          response.end(body);
+        });
+        return;
+      }
+
+      if (stripOrigin) headers['cache-control'] = 'no-store';
+      response.writeHead(upstream.statusCode ?? 502, headers);
       upstream.pipe(response);
     },
   );
@@ -82,10 +130,11 @@ function forward(request, response, target) {
 
 const server = createServer((request, response) => {
   const pathname = new URL(request.url ?? '/', `http://${LISTEN_HOST}:${LISTEN_PORT}`).pathname;
-  const target = isMockPath(pathname) ? `${MOCK_ORIGIN}${request.url}` : `http://127.0.0.1:${APP_PORT}${request.url}`;
+  const toMock = isMockPath(pathname);
+  const target = toMock ? `${MOCK_ORIGIN}${request.url}` : `http://127.0.0.1:${APP_PORT}${request.url}`;
 
-  console.log(`  ${request.method} ${pathname}  ->  ${isMockPath(pathname) ? 'mock' : 'expo'}`);
-  forward(request, response, target);
+  console.log(`  ${request.method} ${pathname}  ->  ${toMock ? 'mock' : 'expo'}`);
+  forward(request, response, target, { stripOrigin: !toMock });
 });
 
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
