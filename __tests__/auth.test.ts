@@ -1,230 +1,200 @@
-import { endpoints } from '@/api/endpoints';
-import { ApiError } from '@/api/errors';
-import { createMemoryTokenStorage, isExpired } from '@/auth/tokenStorage';
-import { createAuthStore } from '@/store/authStore';
-import type { AuthSession } from '@/types/api';
+import { useAuthStore } from '@/store/authStore';
+import {
+  getSession,
+  requestSignInCode,
+  signOut,
+  verifySignInCode,
+} from '@/supabase/auth';
 
-jest.mock('@/api/endpoints', () => ({
-  endpoints: {
-    auth: {
-      requestOtp: jest.fn(),
-      verifyOtp: jest.fn(),
-      resendOtp: jest.fn(),
-      registerProfile: jest.fn(),
-    },
-    customer: { profile: jest.fn() },
-  },
+jest.mock('@/supabase/auth', () => ({
+  getSession: jest.fn(),
+  requestSignInCode: jest.fn(),
+  verifySignInCode: jest.fn(),
+  signOut: jest.fn(),
+  onAuthStateChange: jest.fn(() => ({ unsubscribe: jest.fn() })),
 }));
 
-jest.mock('@/supabase/session', () => ({
-  linkSupabaseSession: jest.fn(async () => ({
-    state: 'disabled' as const,
-    supabaseUserId: null,
-    message: null,
-  })),
-  signOutSupabase: jest.fn(async () => undefined),
+jest.mock('@/supabase/client', () => ({
+  canReadDirectly: () => true,
+  isSupabaseAuthReady: () => true,
+  getSupabaseClient: jest.fn(),
+  looksLikeServiceRoleKey: jest.fn(() => false),
 }));
 
-const authMock = jest.mocked(endpoints.auth);
-const customerMock = jest.mocked(endpoints.customer);
+const authMock = {
+  getSession: getSession as jest.MockedFunction<typeof getSession>,
+  requestSignInCode: requestSignInCode as jest.MockedFunction<typeof requestSignInCode>,
+  verifySignInCode: verifySignInCode as jest.MockedFunction<typeof verifySignInCode>,
+  signOut: signOut as jest.MockedFunction<typeof signOut>,
+};
 
-const session: AuthSession = {
-  accessToken: 'access-1',
-  refreshToken: 'refresh-1',
-  expiresAt: Date.now() + 3_600_000,
-  customerId: 'CUST-23839',
-  fullName: 'Ayesha Rahman',
+const session = {
+  userId: '9f1c2b3a-0000-4000-8000-000000000001',
   email: 'ayesha@example.com',
-  emailVerified: true,
+  accessToken: 'supabase-jwt',
 };
 
-const challenge = {
-  challengeId: 'ch-1',
-  sent: true,
-  expiresIn: 300,
-  resendAfter: 60,
-  accountExists: true,
-};
-
-function makeStore() {
-  const storage = createMemoryTokenStorage();
-  const manager = {
-    read: () => storage.get(),
-    persist: async (s: AuthSession) => {
-      await storage.set({
-        accessToken: s.accessToken,
-        refreshToken: s.refreshToken,
-        expiresAt: s.expiresAt,
-      });
-    },
-    clear: () => storage.clear(),
-    isUsable: async () => !isExpired(await storage.get()),
-    signOut: () => storage.clear(),
-  };
-  return { store: createAuthStore(manager as never), storage };
+function resetStore() {
+  useAuthStore.setState({
+    status: 'loading',
+    profile: null,
+    error: null,
+    pendingEmail: null,
+    otpResendAvailableAt: null,
+  });
 }
 
-describe('passwordless auth store', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('starts unauthenticated when no session is stored', async () => {
-    const { store } = makeStore();
-    await store.getState().bootstrap();
-    expect(store.getState().status).toBe('unauthenticated');
+describe('auth store (Supabase passwordless)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetStore();
   });
 
-  it('never asks the backend for, or sends, a password', async () => {
-    authMock.requestOtp.mockResolvedValue(challenge);
-    const { store } = makeStore();
-
-    await store.getState().requestOtp('  Ayesha@Example.com ');
-
-    expect(authMock.requestOtp).toHaveBeenCalledWith({ email: 'ayesha@example.com' });
-    // The endpoint surface has no password verb at all.
-    expect(Object.keys(authMock).sort()).toEqual([
-      'registerProfile',
-      'requestOtp',
-      'resendOtp',
-      'verifyOtp',
-    ]);
+  it('starts unauthenticated when there is no session', async () => {
+    authMock.getSession.mockResolvedValue(null);
+    await useAuthStore.getState().bootstrap();
+    expect(useAuthStore.getState().status).toBe('unauthenticated');
   });
 
-  it('completes sign-in by exchanging a code for a session', async () => {
-    authMock.verifyOtp.mockResolvedValue(session);
-    const { store, storage } = makeStore();
+  it('restores a persisted session on boot', async () => {
+    authMock.getSession.mockResolvedValue(session);
+    await useAuthStore.getState().bootstrap();
 
-    const result = await store.getState().verifyOtp({ email: 'ayesha@example.com', code: '123456' });
-
-    expect(authMock.verifyOtp).toHaveBeenCalledWith({
+    expect(useAuthStore.getState().status).toBe('authenticated');
+    expect(useAuthStore.getState().profile).toMatchObject({
+      userId: session.userId,
       email: 'ayesha@example.com',
-      code: '123456',
     });
-    expect(result.customerId).toBe('CUST-23839');
-    expect(store.getState().status).toBe('authenticated');
-    expect((await storage.get())?.accessToken).toBe('access-1');
   });
 
-  it('signs a new address up through the same verify call', async () => {
-    // There is no separate register endpoint: a first-time address simply has no
-    // name yet, and the app asks for one afterwards.
-    authMock.verifyOtp.mockResolvedValue({ ...session, fullName: '', emailVerified: false });
-    const { store } = makeStore();
+  it('sends no password, only the address', async () => {
+    authMock.requestSignInCode.mockResolvedValue({ ok: true });
 
-    const result = await store.getState().verifyOtp({ email: 'new@example.com', code: '000000' });
+    await useAuthStore.getState().requestCode('  Ayesha@Example.COM ');
 
-    expect(result.fullName).toBe('');
-    expect(store.getState().profile?.emailVerified).toBe(false);
+    expect(authMock.requestSignInCode).toHaveBeenCalledWith('ayesha@example.com');
   });
 
-  it('stores the resend window so the button cannot be spammed', async () => {
-    authMock.resendOtp.mockResolvedValue(challenge);
-    const { store } = makeStore();
+  it('records the address a code is outstanding for', async () => {
+    authMock.requestSignInCode.mockResolvedValue({ ok: true });
 
-    await store.getState().resendOtp('ayesha@example.com');
+    await useAuthStore.getState().requestCode('ayesha@example.com');
 
-    expect(authMock.resendOtp).toHaveBeenCalledWith({ email: 'ayesha@example.com' });
-    expect(store.getState().otpResendAvailableAt).toBeGreaterThan(Date.now());
+    expect(useAuthStore.getState().pendingEmail).toBe('ayesha@example.com');
+    expect(useAuthStore.getState().otpResendAvailableAt).toBeGreaterThan(Date.now());
   });
 
-  it('surfaces a customer-safe message and stays signed out on a bad code', async () => {
-    authMock.verifyOtp.mockRejectedValue(
-      new ApiError({ kind: 'validation', message: 'That code is not correct. Try again.' }),
-    );
-    const { store } = makeStore();
-    await store.getState().bootstrap();
+  it('reports a disabled email provider instead of a generic failure', async () => {
+    authMock.requestSignInCode.mockResolvedValue({
+      ok: false,
+      reason: 'disabled',
+      message: 'Email sign-in is not switched on for this service yet.',
+    });
 
     await expect(
-      store.getState().verifyOtp({ email: 'ayesha@example.com', code: '000000' }),
-    ).rejects.toBeInstanceOf(ApiError);
+      useAuthStore.getState().requestCode('ayesha@example.com'),
+    ).rejects.toThrow();
 
-    expect(store.getState().status).toBe('unauthenticated');
-    expect(store.getState().error).toBe('That code is not correct. Try again.');
-  });
-
-  it('completes registration after the address is verified', async () => {
-    authMock.verifyOtp.mockResolvedValue({ ...session, fullName: '' });
-    authMock.registerProfile.mockResolvedValue({ fullName: 'Ayesha Rahman' });
-    const { store } = makeStore();
-    await store.getState().verifyOtp({ email: 'ayesha@example.com', code: '123456' });
-
-    await store.getState().completeRegistration({
-      fullName: '  Ayesha Rahman ',
-      deviceName: 'Galaxy A15',
-      agreementVersion: '1.0.0',
-    });
-
-    expect(authMock.registerProfile).toHaveBeenCalledWith({
-      fullName: 'Ayesha Rahman',
-      deviceName: 'Galaxy A15',
-    });
-    expect(store.getState().profile?.fullName).toBe('Ayesha Rahman');
-  });
-
-  it('keeps the customer signed in when the network is unavailable', async () => {
-    customerMock.profile.mockRejectedValue(
-      new ApiError({ kind: 'network', message: 'Unable to reach our servers. Please try again.' }),
+    expect(useAuthStore.getState().error).toBe(
+      'Email sign-in is not switched on for this service yet.',
     );
-    const { store, storage } = makeStore();
-    await storage.set({
-      accessToken: 'access-1',
-      refreshToken: 'refresh-1',
-      expiresAt: Date.now() + 3_600_000,
-    });
-
-    await store.getState().bootstrap();
-
-    // Offline is not a revocation. No authorization is granted locally.
-    expect(store.getState().status).toBe('authenticated');
-    expect(await storage.get()).not.toBeNull();
   });
 
-  it('clears the session when the stored token is rejected', async () => {
-    customerMock.profile.mockRejectedValue(
-      new ApiError({ kind: 'unauthorized', message: 'Your session has expired. Please sign in again.' }),
+  it('advises waiting when the mail provider rate-limits us', async () => {
+    authMock.requestSignInCode.mockResolvedValue({
+      ok: false,
+      reason: 'rate_limited',
+      message: 'Too many codes have been requested. Please wait a few minutes and try again.',
+    });
+
+    await expect(
+      useAuthStore.getState().requestCode('ayesha@example.com'),
+    ).rejects.toThrow();
+
+    expect(useAuthStore.getState().error).toBe(
+      'Too many codes have been requested. Please wait a few minutes and try again.',
     );
-    const { store, storage } = makeStore();
-    await storage.set({
-      accessToken: 'stale',
-      refreshToken: 'stale',
-      expiresAt: Date.now() + 3_600_000,
-    });
-
-    await store.getState().bootstrap();
-
-    expect(store.getState().status).toBe('unauthenticated');
-    expect(await storage.get()).toBeNull();
   });
 
-  it('does not mistake a server error for being offline', async () => {
-    // A 404/500 means we could not confirm who this is. Treating it as "offline"
-    // would mark the customer authenticated with a null profile, and the next
-    // authenticated call would then fail locally as "your session has expired".
-    customerMock.profile.mockRejectedValue(
-      new ApiError({ kind: 'not_found', message: 'The requested information was not found.' }),
-    );
-    const { store, storage } = makeStore();
-    await storage.set({
-      accessToken: 'access-1',
-      refreshToken: 'refresh-1',
-      expiresAt: Date.now() + 3_600_000,
+  it('completes sign-in and records the Supabase user id', async () => {
+    authMock.verifySignInCode.mockResolvedValue({
+      ok: true,
+      userId: session.userId,
+      email: 'ayesha@example.com',
+      isNewUser: false,
     });
 
-    await store.getState().bootstrap();
+    const profile = await useAuthStore.getState().verifyCode('ayesha@example.com', '123456');
 
-    expect(store.getState().status).toBe('unauthenticated');
-    expect(store.getState().profile).toBeNull();
-    expect(await storage.get()).toBeNull();
+    expect(authMock.verifySignInCode).toHaveBeenCalledWith('ayesha@example.com', '123456');
+    expect(profile.userId).toBe(session.userId);
+    expect(useAuthStore.getState().status).toBe('authenticated');
   });
 
-  it('destroys local tokens on sign out', async () => {
-    const { store, storage } = makeStore();
-    authMock.verifyOtp.mockResolvedValue(session);
-    await store.getState().verifyOtp({ email: 'ayesha@example.com', code: '123456' });
+  it('flags a brand new user so the app can collect their details', async () => {
+    authMock.verifySignInCode.mockResolvedValue({
+      ok: true,
+      userId: session.userId,
+      email: 'new@example.com',
+      isNewUser: true,
+    });
 
-    await store.getState().signOut();
+    const profile = await useAuthStore.getState().verifyCode('new@example.com', '000000');
 
-    expect(store.getState().status).toBe('unauthenticated');
-    expect(store.getState().profile).toBeNull();
-    expect(await storage.get()).toBeNull();
+    expect(profile.isNewUser).toBe(true);
+  });
+
+  it('surfaces a customer-safe message for a wrong code', async () => {
+    authMock.verifySignInCode.mockResolvedValue({
+      ok: false,
+      message: 'That code is not correct. Try again.',
+    });
+
+    await expect(
+      useAuthStore.getState().verifyCode('ayesha@example.com', '000000'),
+    ).rejects.toThrow();
+
+    expect(useAuthStore.getState().error).toBe('That code is not correct. Try again.');
+    expect(useAuthStore.getState().status).not.toBe('authenticated');
+  });
+
+  it('distinguishes an expired code', async () => {
+    authMock.verifySignInCode.mockResolvedValue({
+      ok: false,
+      message: 'That code has expired. Request a new one.',
+    });
+
+    await expect(
+      useAuthStore.getState().verifyCode('ayesha@example.com', '000000'),
+    ).rejects.toThrow();
+
+    expect(useAuthStore.getState().error).toBe('That code has expired. Request a new one.');
+  });
+
+  it('holds the display name in memory rather than writing to the database', () => {
+    useAuthStore.setState({
+      profile: { userId: 'u', email: 'a@b.com', fullName: '', isNewUser: true },
+    });
+
+    useAuthStore.getState().setDisplayName('  Ayesha Rahman  ');
+
+    expect(useAuthStore.getState().profile?.fullName).toBe('Ayesha Rahman');
+  });
+
+  it('clears everything on sign out', async () => {
+    authMock.verifySignInCode.mockResolvedValue({
+      ok: true,
+      userId: session.userId,
+      email: 'ayesha@example.com',
+      isNewUser: false,
+    });
+    await useAuthStore.getState().verifyCode('ayesha@example.com', '123456');
+    useAuthStore.getState().setDisplayName('Ayesha Rahman');
+
+    await useAuthStore.getState().signOut();
+
+    expect(authMock.signOut).toHaveBeenCalled();
+    expect(useAuthStore.getState().status).toBe('unauthenticated');
+    expect(useAuthStore.getState().profile).toBeNull();
   });
 });

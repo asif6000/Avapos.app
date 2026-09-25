@@ -207,20 +207,21 @@ export const en = {
     dark: 'Dark',
   },
   supabaseLink: {
-    title: 'Faster data sync',
+    title: 'How your data is read',
     explain:
-      'Optional. Verifying a second code lets the app read your own records directly from our database instead of through the server. It gives no extra access and cannot change anything.',
-    status: 'Status',
-    sendCode: 'Email me a code',
-    codeHelp: 'Enter the 6-digit code we emailed you.',
-    done: 'Your account is linked. The app will read your data directly from now on.',
-    unavailable: 'Direct reads are currently switched off for this build.',
+      'You sign in with a code sent to your email. That sign-in is what lets our database show only your own records to you — every request is filtered by your account, and nothing you do here can change a payment or your device status.',
+    status: 'Sign-in service',
+    directReads: 'Direct record access',
+    identity: 'Sign-in method',
+    checkedAt: 'Checked',
+    readsDisabled:
+      'Direct record access is switched off until database access rules pass verification. The app is reading through the server in the meantime.',
     state: {
-      disabled: 'Off in this build',
-      'signed-out': 'Not linked',
-      linked: 'Linked',
-      unlinked: 'Not linked yet',
-      error: 'Could not check',
+      configured: 'Supabase Auth — email code',
+      disabled: 'Not configured for this build',
+      enabled: 'Enabled — your records only',
+      off: 'Off — reading through the server',
+      emailCode: 'Emailed 6-digit code, no password',
     },
   },
   states: {

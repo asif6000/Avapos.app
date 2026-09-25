@@ -1,6 +1,5 @@
 import { ApiClient } from '@/api/client';
 import { createEndpoints } from '@/api/endpoints';
-import { createMemoryTokenStorage } from '@/auth/tokenStorage';
 
 /**
  * Customer data isolation.
@@ -13,25 +12,22 @@ import { createMemoryTokenStorage } from '@/auth/tokenStorage';
 describe('customer data isolation', () => {
   const BASE = 'https://api.test.local/customer';
 
-  const customerATokens = {
-    accessToken: 'customer-a-token',
-    refreshToken: 'a-refresh',
-    expiresAt: Date.now() + 3_600_000,
-  };
+  // The bearer is the customer's Supabase JWT, issued by Supabase Auth.
+  const customerAJwt = 'customer-a-supabase-jwt';
 
-  function clientFor(tokens: typeof customerATokens) {
+  function clientFor(token: string = customerAJwt) {
     const fetchImpl = jest.fn();
     const client = new ApiClient({
       baseUrl: BASE,
-      storage: createMemoryTokenStorage(tokens),
       fetchImpl: fetchImpl as unknown as typeof fetch,
+      getToken: async () => token,
       sleep: async () => undefined,
     });
     return { client, endpoints: createEndpoints(client), fetchImpl };
   }
 
   it('never puts a customerId, deviceId or contractId in the request body', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: true,
       status: 200,
@@ -50,7 +46,7 @@ describe('customer data isolation', () => {
   });
 
   it('scopes every request with the session token, not a supplied identity', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: true,
       status: 200,
@@ -62,12 +58,12 @@ describe('customer data isolation', () => {
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`${BASE}/devices/me`);
     const headers = init.headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer customer-a-token');
-    expect(url).not.toContain('customer-a');
+    expect(headers.Authorization).toBe(`Bearer ${customerAJwt}`);
+    expect(url).not.toContain('CUST');
   });
 
   it('requests "me" resources rather than a customer-chosen device id', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: true,
       status: 200,
@@ -82,7 +78,7 @@ describe('customer data isolation', () => {
   });
 
   it('surfaces a 403 when the backend refuses a cross-customer request', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: false,
       status: 403,
@@ -96,7 +92,7 @@ describe('customer data isolation', () => {
   });
 
   it('does not retry a 403 or escalate it into a token refresh', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: false,
       status: 403,
@@ -108,7 +104,7 @@ describe('customer data isolation', () => {
   });
 
   it('lets the backend reject a tampered payment amount', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: false,
       status: 422,
@@ -122,7 +118,7 @@ describe('customer data isolation', () => {
   });
 
   it('refuses to fake an unlock: state is only ever read from the server', async () => {
-    const { endpoints: api, fetchImpl } = clientFor(customerATokens);
+    const { endpoints: api, fetchImpl } = clientFor();
     fetchImpl.mockResolvedValue({
       ok: true,
       status: 200,

@@ -6,7 +6,6 @@ import { KeyboardAvoidingView, Platform, StyleSheet, View } from 'react-native';
 import { Button, HelperText, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { z } from 'zod';
 
-import { ApiError } from '@/api/errors';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
@@ -31,7 +30,7 @@ export default function LoginScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const router = useRouter();
-  const requestOtp = useAuthStore((state) => state.requestOtp);
+  const requestCode = useAuthStore((state) => state.requestCode);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -49,10 +48,11 @@ export default function LoginScreen() {
     setNotice(null);
     try {
       const email = normalizeEmail(values.email);
-      await requestOtp(email);
+      await requestCode(email);
       router.push({ pathname: '/(auth)/otp', params: { email } });
-    } catch (error) {
-      setNotice(error instanceof ApiError ? error.message : t('errors.generic'));
+    } catch {
+      // The store already holds a customer-safe message; never echo a driver error.
+      setNotice(useAuthStore.getState().error);
     } finally {
       setSubmitting(false);
     }

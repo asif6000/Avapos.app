@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
-import { getSupabaseClient } from './client';
+import { canReadDirectly, getSupabaseClient } from './client';
 import type {
   Database,
   DeviceRow,
@@ -27,8 +27,13 @@ import type { AppNotification, Customer, Device, Payment, SupportTicket } from '
  * particular are server-authoritative.
  */
 
+/**
+ * Queries are gated on `canReadDirectly()`, not merely on having a client: a
+ * signed-in Supabase session makes `auth.uid()` available, which is necessary
+ * for RLS to work, but it is not sufficient — the policies have to exist.
+ */
 function useSupabase() {
-  return getSupabaseClient();
+  return canReadDirectly() ? getSupabaseClient() : null;
 }
 
 export function useSupabaseProfile(): UseQueryResult<Customer | null, Error> {

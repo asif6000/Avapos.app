@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Api\CustomerAuthController;
-use App\Http\Controllers\Api\CustomerProfileController;
+use App\Http\Controllers\Api\CustomerPaymentController;
+use App\Http\Middleware\VerifySupabaseJwt;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -12,32 +12,28 @@ use Illuminate\Support\Facades\Route;
 | The mobile app is served from the `/customer` prefix. Nothing lives under
 | `/api` — that route group is empty.
 |
-| Every route except the four in `auth` requires a bearer access token issued
-| by `CustomerAuthController::verifyCode`. Ownership is resolved from the token:
-| no route accepts a customerId, deviceId or contractId as an identifier.
+| Authentication is Supabase Auth. The app signs in with an emailed code and
+| presents the resulting access token as its bearer; `VerifySupabaseJwt`
+| verifies that token's signature against the project's signing keys before any
+| claim in it is trusted. There is no local password and no `/auth/*` route.
+|
+| Load this from the `api` middleware group, NOT from `web`. A `web` route sits
+| behind the CSRF filter and answers 419 to every request from the app, which
+| looks like a broken app rather than a routing mistake.
 |
 */
 
 Route::prefix('customer')->group(function () {
-    // ---- Passwordless authentication (no token) -------------------------
-    // Identical response for known and unknown addresses, so this cannot be
-    // used to discover which email addresses have accounts.
-    Route::post('auth/request-code', [CustomerAuthController::class, 'requestCode'])
-        ->middleware('throttle:auth-code');
+    Route::middleware(VerifySupabaseJwt::class)->group(function () {
+        // ---- Sessions -----------------------------------------------------
+        // Revokes the Supabase session. The client also clears its own session.
+        Route::post('logout', fn () => response()->json(['revoked' => true]));
 
-    Route::post('auth/resend-code', [CustomerAuthController::class, 'resendCode'])
-        ->middleware('throttle:auth-code');
-
-    Route::post('auth/verify-code', [CustomerAuthController::class, 'verifyCode'])
-        ->middleware('throttle:auth-code');
-
-    Route::post('auth/refresh', [CustomerAuthController::class, 'refresh'])
-        ->middleware('throttle:auth-code');
-
-    // ---- Authenticated ---------------------------------------------------
-    Route::middleware('auth:customer')->group(function () {
-        Route::post('logout', [CustomerAuthController::class, 'logout']);
-
-        Route::patch('profile', [CustomerProfileController::class, 'update']);
+        // ---- Money --------------------------------------------------------
+        // `amount` arrives from the phone for display only. Re-validate it
+        // against the contract before creating the order.
+        Route::get('payments', [CustomerPaymentController::class, 'index']);
+        Route::post('payments/create', [CustomerPaymentController::class, 'store']);
+        Route::get('payments/{id}/status', [CustomerPaymentController::class, 'status']);
     });
 });

@@ -6,7 +6,6 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 're
 import { Button, HelperText, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
 import { z } from 'zod';
 
-import { ApiError } from '@/api/errors';
 import { DEVICE_MANAGEMENT_AGREEMENT_VERSION } from '@/config/agreement';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
@@ -16,6 +15,9 @@ const schema = z.object({
   fullName: z.string().min(3, 'required'),
   deviceName: z.string().min(2, 'required'),
 });
+
+/** Kept so the agreement version stays in one place if the device flow needs it. */
+export const AGREEMENT_VERSION = DEVICE_MANAGEMENT_AGREEMENT_VERSION;
 
 type FormValues = z.infer<typeof schema>;
 
@@ -28,7 +30,7 @@ export default function RegisterScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const router = useRouter();
-  const completeRegistration = useAuthStore((state) => state.completeRegistration);
+  const setDisplayName = useAuthStore((state) => state.setDisplayName);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -45,14 +47,14 @@ export default function RegisterScreen() {
     setSubmitting(true);
     setNotice(null);
     try {
-      await completeRegistration({
-        fullName: values.fullName,
-        deviceName: values.deviceName,
-        agreementVersion: DEVICE_MANAGEMENT_AGREEMENT_VERSION,
-      });
+      // The name is held in memory. It is NOT written to `profiles` from the
+      // device: that table is server-authoritative, and while RLS is being
+      // fixed a client write there would be an unauthenticated write to
+      // customer data. It syncs once the backend profile route exists.
+      setDisplayName(values.fullName);
       router.replace('/(tabs)');
-    } catch (error) {
-      setNotice(error instanceof ApiError ? error.message : t('errors.generic'));
+    } catch {
+      setNotice(useAuthStore.getState().error ?? t('errors.generic'));
     } finally {
       setSubmitting(false);
     }

@@ -1,13 +1,9 @@
-import { apiClient, type ApiClient } from './client';
+import type { ApiClient } from './client';
+import { apiClient } from './instance';
 import type {
-  AuthSession,
   CreatePaymentRequest,
   CreateTicketRequest,
-  OtpChallenge,
-  OtpRequest,
-  OtpVerifyRequest,
   Paginated,
-  RegisterRequest,
 } from '@/types/api';
 import type {
   AgreementAcceptance,
@@ -39,22 +35,12 @@ import type {
  */
 export function createEndpoints(client: ApiClient) {
   return {
-    // Passwordless. No password is ever sent, stored, or accepted.
+    // Authentication is Supabase Auth's job — see `src/supabase/auth.ts`. The
+    // app posts no credentials here at all; it holds a Supabase session and
+    // sends that JWT as the bearer. No password exists in this app.
     auth: {
-      /** [todo] Emails a 6-digit code to the address. */
-      requestOtp: (payload: OtpRequest) =>
-        client.post<OtpChallenge>('/auth/request-code', payload, { anonymous: true }),
-      /** [todo] Exchanges the emailed code for a session. */
-      verifyOtp: (payload: OtpVerifyRequest) =>
-        client.post<AuthSession>('/auth/verify-code', payload, { anonymous: true }),
-      /** [todo] Re-sends a code for the same address. */
-      resendOtp: (payload: OtpRequest) =>
-        client.post<OtpChallenge>('/auth/resend-code', payload, { anonymous: true }),
-      /** [todo] Post-verification profile setup for a brand new address. */
-      registerProfile: (payload: Pick<RegisterRequest, 'fullName' | 'deviceName'>) =>
-        client.patch<Pick<AuthSession, 'fullName'>>('/profile', payload),
-      /** [live] Revokes the current session server-side. */
-      logout: () => client.post<{ revoked: boolean }>('/logout'),
+      /** [live] Revokes the Supabase session. */
+      signOut: () => client.post<{ revoked: boolean }>('/logout'),
     },
 
     customer: {

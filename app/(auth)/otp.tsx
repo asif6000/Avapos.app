@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Button, Snackbar, Text, TextInput, useTheme } from 'react-native-paper';
 
-import { ApiError } from '@/api/errors';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
@@ -22,8 +21,8 @@ export default function OtpScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
   const pendingEmail = useAuthStore((state) => state.pendingEmail);
-  const verifyOtp = useAuthStore((state) => state.verifyOtp);
-  const resendOtp = useAuthStore((state) => state.resendOtp);
+  const verifyCode = useAuthStore((state) => state.verifyCode);
+  const resendCode = useAuthStore((state) => state.resendCode);
   const resendAvailableAt = useAuthStore((state) => state.otpResendAvailableAt);
 
   const email = params.email ?? pendingEmail ?? '';
@@ -50,13 +49,13 @@ export default function OtpScreen() {
     setSubmitting(true);
     setNotice(null);
     try {
-      const session = await verifyOtp({ email, code });
-      // A brand new address has no name or device yet; finish setting it up.
-      if (!session.fullName) {
+      const profile = await verifyCode(email, code);
+      // A brand new user has no name or device yet; finish setting it up.
+      if (profile.isNewUser) {
         router.replace('/(auth)/register');
       }
-    } catch (error) {
-      setNotice(error instanceof ApiError ? error.message : t('errors.generic'));
+    } catch {
+      setNotice(useAuthStore.getState().error ?? t('errors.generic'));
       setCode('');
     } finally {
       setSubmitting(false);
@@ -67,10 +66,10 @@ export default function OtpScreen() {
     setResending(true);
     setNotice(null);
     try {
-      await resendOtp(email);
+      await resendCode(email);
       setCode('');
-    } catch (error) {
-      setNotice(error instanceof ApiError ? error.message : t('errors.generic'));
+    } catch {
+      setNotice(useAuthStore.getState().error ?? t('errors.generic'));
     } finally {
       setResending(false);
     }

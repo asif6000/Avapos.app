@@ -24,7 +24,7 @@ export default function SettingsScreen() {
   const setThemePreference = usePreferencesStore((state) => state.setTheme);
 
   const { data: profile } = useProfile();
-  const supabaseLink = useAuthStore((state) => state.supabaseLink);
+  const directReads = useAuthStore((state) => state.directReadsEnabled);
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
@@ -138,7 +138,7 @@ export default function SettingsScreen() {
         <List.Section>
           <List.Item
             title={t('supabaseLink.title')}
-            description={t(`supabaseLink.state.${supabaseLink}`)}
+            description={directReads ? t('supabaseLink.state.linked') : t('supabaseLink.state.disabled')}
             onPress={() => router.push('/settings/supabase-link')}
             testID="settings-supabase-link"
           />

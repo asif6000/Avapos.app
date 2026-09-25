@@ -1,104 +1,51 @@
 import { API_BASE_URL, DEFAULT_TIMEOUT_MS, MAX_RETRIES, RETRYABLE_METHODS } from './config';
 import {
   ApiError,
+  defaultMessageFor,
   extractFieldErrors,
   extractSafeMessage,
   statusToKind,
-  defaultMessageFor,
   type ErrorKind,
 } from './errors';
-import { isExpired, secureTokenStorage, type TokenStorage } from '@/auth/tokenStorage';
-import { notifySessionExpired } from '@/auth/sessionEvents';
+import type { HttpMethod, RequestOptions, TokenProvider, UnauthorizedHandler } from './types';
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-
-export interface RequestOptions {
-  method?: HttpMethod;
-  body?: unknown;
-  query?: Record<string, string | number | boolean | undefined>;
-  /** Skip the Authorization header (login, OTP). */
-  anonymous?: boolean;
-  /** Caller-owned cancellation, combined with the internal timeout. */
-  signal?: AbortSignal;
-  timeoutMs?: number;
-  retries?: number;
-  headers?: Record<string, string>;
-}
-
-export type SessionListener = () => void | Promise<void>;
-
-export interface ApiClientOptions {
-  baseUrl?: string;
-  storage?: TokenStorage;
-  fetchImpl?: typeof fetch;
-  onSessionExpired?: SessionListener;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-}
-
-interface InternalConfig {
-  baseUrl: string;
-  storage: TokenStorage;
-  fetchImpl: typeof fetch;
-  onSessionExpired?: SessionListener;
-  now: () => number;
-  sleep: (ms: number) => Promise<void>;
-}
-
-const defaultSleep = (ms: number) =>
-  new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { name?: string }).name === 'AbortError'
-  );
-}
-
-function buildUrl(
-  baseUrl: string,
-  path: string,
-  query?: RequestOptions['query'],
-): string {
-  const normalized = path.startsWith('/') ? path : `/${path}`;
-  const url = `${baseUrl}${normalized}`;
-  if (!query) return url;
-  const pairs = Object.entries(query)
-    .filter(([, value]) => value !== undefined)
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
-  if (pairs.length === 0) return url;
-  return `${url}${url.includes('?') ? '&' : '?'}${pairs.join('&')}`;
-}
+export type { HttpMethod, RequestOptions, TokenProvider, UnauthorizedHandler };
 
 /**
  * Centralized HTTP client.
  *
- * - attaches the customer session token to every authenticated request
- * - refreshes an expired token exactly once, with a shared in-flight lock
+ * The bearer token is a Supabase JWT supplied by the caller (see
+ * `api/instance.ts`). Supabase owns issuing and refreshing it, so this client
+ * deliberately has **no** refresh logic and stores nothing of its own: a 401
+ * means the session is gone, and the only honest response is to sign out.
+ *
+ * - never retries a write
  * - normalizes every failure into a customer-safe `ApiError`
- * - retries only idempotent reads, with exponential backoff
- * - never logs request/response bodies, headers or credentials
+ * - never logs bodies, headers or credentials
  */
 export class ApiClient {
-  private readonly config: InternalConfig;
-  private refreshInFlight: Promise<string | null> | null = null;
+  private readonly origin: string;
+  private readonly fetchImpl: typeof fetch;
+  private readonly sleepFn: (ms: number) => Promise<void>;
+  private readonly getToken: TokenProvider;
+  private readonly onUnauthorized: UnauthorizedHandler;
 
-  constructor(options: ApiClientOptions = {}) {
-    this.config = {
-      baseUrl: options.baseUrl ?? API_BASE_URL,
-      storage: options.storage ?? secureTokenStorage,
-      fetchImpl: options.fetchImpl ?? fetch,
-      onSessionExpired: options.onSessionExpired ?? notifySessionExpired,
-      now: options.now ?? (() => Date.now()),
-      sleep: options.sleep ?? defaultSleep,
-    };
+  constructor(options: {
+    baseUrl?: string;
+    fetchImpl?: typeof fetch;
+    getToken?: TokenProvider;
+    onUnauthorized?: UnauthorizedHandler;
+    sleep?: (ms: number) => Promise<void>;
+  } = {}) {
+    this.origin = (options.baseUrl ?? API_BASE_URL).replace(/\/+$/, '');
+    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.getToken = options.getToken ?? (async () => null);
+    this.onUnauthorized = options.onUnauthorized ?? (() => undefined);
+    this.sleepFn = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   }
 
   get baseUrl(): string {
-    return this.config.baseUrl;
+    return this.origin;
   }
 
   async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -106,25 +53,26 @@ export class ApiClient {
     const maxRetries = options.retries ?? (RETRYABLE_METHODS.has(method) ? MAX_RETRIES : 0);
 
     let lastError: ApiError | null = null;
+
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       try {
         return await this.performRequest<T>(path, options, method);
       } catch (error) {
         const apiError = toApiError(error);
+
         if (apiError.kind === 'unauthorized' && !options.anonymous) {
-          const recovered = await this.tryRefresh();
-          if (recovered) {
-            continue;
-          }
-          await this.config.onSessionExpired?.();
+          // The token was rejected. Supabase refreshes it if it can; if it
+          // cannot, the session is gone and only a sign-out is honest.
+          await this.onUnauthorized();
         }
+
         lastError = apiError;
-        const canRetry =
-          attempt < maxRetries && apiError.isRetryable && !options.signal?.aborted;
+        const canRetry = attempt < maxRetries && apiError.isRetryable && !options.signal?.aborted;
         if (!canRetry) break;
-        await this.config.sleep(2 ** attempt * 500);
+        await this.sleepFn(2 ** attempt * 500);
       }
     }
+
     throw lastError ?? new ApiError({ kind: 'unknown', message: defaultMessageFor('unknown') });
   }
 
@@ -140,13 +88,11 @@ export class ApiClient {
     return this.request<T>(path, { ...options, method: 'PATCH', body });
   }
 
-  async performRequest<T>(
+  private async performRequest<T>(
     path: string,
     options: RequestOptions,
     method: HttpMethod,
-    attempt = 0,
   ): Promise<T> {
-    const { storage, fetchImpl } = this.config;
     const controller = new AbortController();
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -157,24 +103,13 @@ export class ApiClient {
     try {
       let token: string | null = null;
       if (!options.anonymous) {
-        const tokens = await storage.get();
-        if (!tokens) {
-          throw new ApiError({ kind: 'unauthorized', message: defaultMessageFor('unauthorized') });
+        token = await this.getToken();
+        if (!token) {
+          throw new ApiError({
+            kind: 'unauthorized',
+            message: defaultMessageFor('unauthorized'),
+          });
         }
-        if (isExpired(tokens, 30_000) && attempt === 0) {
-          const refreshed = await this.refreshTokens();
-          if (!refreshed) {
-            throw new ApiError({
-              kind: 'unauthorized',
-              message: defaultMessageFor('unauthorized'),
-            });
-          }
-        }
-        const current = await storage.get();
-        if (!current) {
-          throw new ApiError({ kind: 'unauthorized', message: defaultMessageFor('unauthorized') });
-        }
-        token = current.accessToken;
       }
 
       const headers: Record<string, string> = {
@@ -184,7 +119,7 @@ export class ApiClient {
       };
       if (token) headers.Authorization = `Bearer ${token}`;
 
-      const response = await fetchImpl(buildUrl(this.config.baseUrl, path, options.query), {
+      const response = await this.fetchImpl(buildUrl(this.origin, path, options.query), {
         method,
         headers,
         signal: controller.signal,
@@ -209,86 +144,40 @@ export class ApiClient {
       options.signal?.removeEventListener('abort', onExternalAbort);
     }
   }
-
-  /**
-   * Refreshes the session token. Concurrent callers share a single in-flight
-   * refresh so a burst of 401s produces exactly one rotation.
-   */
-  private async refreshTokens(): Promise<string | null> {
-    if (this.refreshInFlight) return this.refreshInFlight;
-
-    this.refreshInFlight = (async () => {
-      const tokens = await this.config.storage.get();
-      if (!tokens) return null;
-      try {
-        const response = await this.config.fetchImpl(
-          buildUrl(this.config.baseUrl, '/auth/refresh'),
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
-            body: JSON.stringify({ refreshToken: tokens.refreshToken }),
-          },
-        );
-        if (!response.ok) {
-          await this.config.storage.clear();
-          return null;
-        }
-        const payload = await readBody(response);
-        const data = unwrap<{ accessToken?: string; refreshToken?: string; expiresIn?: number }>(
-          payload,
-        );
-        if (typeof data.accessToken !== 'string') {
-          await this.config.storage.clear();
-          return null;
-        }
-        const next: AuthTokensShape = {
-          accessToken: data.accessToken,
-          refreshToken: data.refreshToken ?? tokens.refreshToken,
-          expiresAt: this.config.now() + (data.expiresIn ?? 3600) * 1000,
-        };
-        await this.config.storage.set(next);
-        return next.accessToken;
-      } catch {
-        // A failed refresh never escalates to a crash; the caller surfaces 401.
-        return null;
-      } finally {
-        this.refreshInFlight = null;
-      }
-    })();
-
-    return this.refreshInFlight;
-  }
-
-  private async tryRefresh(): Promise<boolean> {
-    return (await this.refreshTokens()) !== null;
-  }
 }
-
-type AuthTokensShape = { accessToken: string; refreshToken: string; expiresAt: number };
 
 function toApiError(error: unknown): ApiError {
   if (error instanceof ApiError) return error;
-  if (error instanceof Error) {
-    return new ApiError({ kind: 'network', message: defaultMessageFor('network') });
-  }
-  return new ApiError({ kind: 'unknown', message: defaultMessageFor('unknown') });
+  return new ApiError({ kind: 'network', message: defaultMessageFor('network') });
 }
 
-function buildHttpError(status: number, payload: unknown): ApiError {
+export function buildUrl(
+  baseUrl: string,
+  path: string,
+  query?: RequestOptions['query'],
+): string {
+  const normalized = path.startsWith('/') ? path : `/${path}`;
+  const url = `${baseUrl}${normalized}`;
+  if (!query) return url;
+  const pairs = Object.entries(query)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+  if (pairs.length === 0) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}${pairs.join('&')}`;
+}
+
+export function buildHttpError(status: number, payload: unknown): ApiError {
   const kind = statusToKind(status);
-  // The backend's own wording is only shown for validation failures, where it
-  // is written for humans. A 404 that says "Not Found" is the server's problem,
-  // not something to show a customer.
   const fallback = defaultMessageFor(kind);
-  const message =
-    kind === 'validation' ? extractSafeMessage(payload, fallback) : fallback;
+  // The backend's own wording is only shown for validation failures, where it
+  // is written for a human. A 404 that says "Not Found" is the server's
+  // vocabulary, not something to put in front of a customer.
+  const message = kind === 'validation' ? extractSafeMessage(payload, fallback) : fallback;
   const code =
     payload && typeof payload === 'object' && typeof (payload as { code?: unknown }).code === 'string'
-      ? ((payload as { code: string }).code)
+      ? (payload as { code: string }).code
       : null;
+
   return new ApiError({
     kind,
     message,
@@ -312,26 +201,28 @@ async function readBody(response: Response): Promise<unknown> {
 /**
  * Unwraps a success payload.
  *
- * Tolerates the three shapes a Laravel API realistically returns:
+ * Tolerates the shapes a Laravel API realistically returns:
  *   { success: true, data: {...} }   explicit envelope
- *   { data: {...} }                   Laravel resource / JSON:API style
+ *   { data: {...} }                   Laravel resource style
  *   { ...fields }                     bare payload
  *
- * A `success: false` envelope is NOT unwrapped here; it only ever arrives with
- * a non-2xx status and is turned into an ApiError by `buildHttpError`.
+ * A `success: false` envelope never reaches here: it only arrives with a
+ * non-2xx status and is turned into an ApiError by `buildHttpError`.
  */
-function unwrap<T>(payload: unknown): T {
+export function unwrap<T>(payload: unknown): T {
   if (payload === null || payload === undefined) return null as T;
   if (typeof payload !== 'object') return payload as T;
 
   const record = payload as Record<string, unknown>;
-  if (record['success'] === true) {
-    return (record['data'] ?? null) as T;
-  }
-  if ('data' in record && Object.keys(record).length <= 2) {
-    return (record['data'] ?? null) as T;
-  }
+  if (record['success'] === true) return (record['data'] ?? null) as T;
+  if ('data' in record && Object.keys(record).length <= 2) return (record['data'] ?? null) as T;
   return payload as T;
 }
 
-export const apiClient = new ApiClient();
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { name?: string }).name === 'AbortError'
+  );
+}

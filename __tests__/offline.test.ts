@@ -1,16 +1,11 @@
 import { ApiClient } from '@/api/client';
-import { createMemoryTokenStorage } from '@/auth/tokenStorage';
 import { deviceManagementService } from '@/services/deviceManagement';
 import { currentNetworkState, useNetworkStore } from '@/store/networkStore';
 import * as Network from 'expo-network';
 
 const BASE = 'https://api.test.local/customer';
 
-const tokens = {
-  accessToken: 'a',
-  refreshToken: 'r',
-  expiresAt: Date.now() + 3_600_000,
-};
+const jwt = 'supabase-jwt';
 
 describe('offline behaviour', () => {
   afterEach(() => {
@@ -23,7 +18,7 @@ describe('offline behaviour', () => {
     });
     const client = new ApiClient({
       baseUrl: BASE,
-      storage: createMemoryTokenStorage(tokens),
+      getToken: async () => jwt,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       sleep: async () => undefined,
     });
@@ -46,7 +41,7 @@ describe('offline behaviour', () => {
     });
     const client = new ApiClient({
       baseUrl: BASE,
-      storage: createMemoryTokenStorage(tokens),
+      getToken: async () => jwt,
       fetchImpl: fetchImpl as unknown as typeof fetch,
       sleep: async () => undefined,
     });

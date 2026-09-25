@@ -56,9 +56,9 @@ describe('supabase client configuration', () => {
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ANON,
       EXPO_PUBLIC_SUPABASE_READS_ENABLED: 'true',
     });
-    const { getSupabaseConfigState, isSupabaseConfigured } = require('@/supabase/client') as typeof import('@/supabase/client');
+    const { getSupabaseConfigState, canReadDirectly } = require('@/supabase/client') as typeof import('@/supabase/client');
     expect(getSupabaseConfigState()).toEqual({ status: 'ready' });
-    expect(isSupabaseConfigured()).toBe(true);
+    expect(canReadDirectly()).toBe(true);
   });
 
   it('refuses a service_role key even when reads are enabled', () => {
@@ -67,11 +67,11 @@ describe('supabase client configuration', () => {
       EXPO_PUBLIC_SUPABASE_ANON_KEY: SERVICE_ROLE,
       EXPO_PUBLIC_SUPABASE_READS_ENABLED: 'true',
     });
-    const { getSupabaseConfigState, isSupabaseConfigured } = require('@/supabase/client') as typeof import('@/supabase/client');
+    const { getSupabaseConfigState, canReadDirectly } = require('@/supabase/client') as typeof import('@/supabase/client');
     const state = getSupabaseConfigState();
     expect(state.status).toBe('blocked');
     expect(state.status === 'blocked' && state.reason).toMatch(/bypasses RLS/);
-    expect(isSupabaseConfigured()).toBe(false);
+    expect(canReadDirectly()).toBe(false);
   });
 
   it('refuses the newer sb_secret_ key form', () => {
@@ -84,14 +84,37 @@ describe('supabase client configuration', () => {
     expect(getSupabaseConfigState().status).toBe('blocked');
   });
 
-  it('never returns a client while blocked, so no query can run', () => {
+  it('still allows authentication while direct reads are switched off', () => {
     restore = loadEnv({
       EXPO_PUBLIC_SUPABASE_URL: URL,
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ANON,
       EXPO_PUBLIC_SUPABASE_READS_ENABLED: 'false',
     });
-    const { getSupabaseClient } = require('@/supabase/client') as typeof import('@/supabase/client');
-    expect(getSupabaseClient()).toBeNull();
+    const mod = require('@/supabase/client') as typeof import('@/supabase/client');
+    // Signing in must not depend on a read-only feature flag.
+    expect(mod.isSupabaseAuthReady()).toBe(true);
+  });
+
+  it('refuses a read client while direct reads are switched off', () => {
+    restore = loadEnv({
+      EXPO_PUBLIC_SUPABASE_URL: URL,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ANON,
+      EXPO_PUBLIC_SUPABASE_READS_ENABLED: 'false',
+    });
+    const mod = require('@/supabase/client') as typeof import('@/supabase/client');
+    // Auth and reads are separate gates: one existing must not unlock the other.
+    expect(mod.canReadDirectly()).toBe(false);
+    expect(mod.getSupabaseReadClient()).toBeNull();
+  });
+
+  it('permits a read client once reads are enabled', () => {
+    restore = loadEnv({
+      EXPO_PUBLIC_SUPABASE_URL: URL,
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ANON,
+      EXPO_PUBLIC_SUPABASE_READS_ENABLED: 'true',
+    });
+    const mod = require('@/supabase/client') as typeof import('@/supabase/client');
+    expect(mod.canReadDirectly()).toBe(true);
   });
 });
 

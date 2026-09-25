@@ -1,4 +1,3 @@
-import { apiClient } from '@/api/client';
 import { isExpired, secureTokenStorage, type TokenStorage } from './tokenStorage';
 import type { AuthSession } from '@/types/api';
 
@@ -52,9 +51,6 @@ export class SessionManager {
     await this.storage.clear();
   }
 
-  get baseUrl(): string {
-    return apiClient.baseUrl;
-  }
 }
 
 export const sessionManager = new SessionManager();
