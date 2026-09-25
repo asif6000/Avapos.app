@@ -95,6 +95,15 @@ export async function signIn(email: string, password: string): Promise<AuthResul
   };
 }
 
+/** Why a signup was refused. Empty when it succeeded. */
+function diagnose(error: { message: string } | null): string {
+  const detail = `${error?.message ?? ''} ${(error as { code?: string })?.code ?? ''}`;
+  if (/over_email|rate limit/i.test(detail)) return 'mailer rate limit';
+  if (/provider_disabled|signup_disabled/i.test(detail)) return 'email provider disabled';
+  if (/email_address_invalid/i.test(detail)) return 'address rejected';
+  return 'other';
+}
+
 export async function signUp(email: string, password: string): Promise<AuthResult<Identity>> {
   if (!isSupabaseAuthReady()) {
     return { ok: false, message: 'Sign-in is not available in this build.' };
@@ -106,6 +115,15 @@ export async function signUp(email: string, password: string): Promise<AuthResul
   });
 
   if (error || !data.user) {
+    if (__DEV__) {
+      // The customer sees plain copy; the cause is logged for whoever is
+      // running the build, because "could not create account" on a working app
+      // is usually a project setting rather than a bug.
+      const cause = diagnose(error);
+      if (cause !== 'other') {
+          console.warn(`[auth] signUp refused: ${cause} — run \`npm run check:signup\``);
+      }
+    }
     return { ok: false, message: classify(error) };
   }
 

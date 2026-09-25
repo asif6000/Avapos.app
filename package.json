@@ -22,7 +22,8 @@
     "test:watch": "jest --watch",
     "doctor": "expo-doctor",
     "verify": "npm run typecheck && npm run lint && npm run test",
-    "verify:rls": "node scripts/verify-rls.mjs"
+    "verify:rls": "node scripts/verify-rls.mjs",
+    "check:signup": "node scripts/check-signup.mjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

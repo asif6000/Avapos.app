@@ -2,7 +2,6 @@ import { useRouter } from 'expo-router';
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
-import { ApiError } from '@/api/errors';
 import { AmountProgress } from '@/components/AmountProgress';
 import { AppIcon } from '@/components/AppIcon';
 import { AppHeader } from '@/components/AppHeader';
