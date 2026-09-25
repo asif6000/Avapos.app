@@ -155,6 +155,20 @@ export class ApiClient {
         const kind: ErrorKind = options.signal?.aborted ? 'network' : 'timeout';
         throw new ApiError({ kind, message: defaultMessageFor(kind) });
       }
+      if (__DEV__) {
+        // The one failure here that arrives with no detail of its own. On a web
+        // build the usual cause is not a dead network at all: the browser blocks
+        // a response that carries no `Access-Control-Allow-Origin` header and
+        // reports it exactly like an unreachable host, so the app says "unable
+        // to reach our servers" while the server is answering perfectly well.
+        // Logging the destination is the difference between a one-minute fix and
+        // an afternoon. Never the token, never a body.
+        console.warn(
+          `[api] ${method} ${buildUrl(this.origin, path, options.query)} was not answered: ${
+            error instanceof Error ? error.message : String(error)
+          } — on a web build, check the API sends CORS headers`,
+        );
+      }
       throw new ApiError({ kind: 'network', message: defaultMessageFor('network') });
     } finally {
       clearTimeout(timeout);

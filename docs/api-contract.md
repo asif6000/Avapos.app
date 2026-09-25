@@ -10,6 +10,21 @@ Not `/api/customer`. `/api/*` has no routes registered — verified by probing
 `/api/user` (Laravel's own default route), which returns 404. Everything lives
 under the `/customer` prefix.
 
+## CORS, for the web build
+
+Native builds ignore CORS; a browser does not, and a browser discards a response
+that carries no `Access-Control-Allow-Origin` header. Measured against the
+deployed server, a preflight returns 200 with **no** CORS headers at all:
+
+```
+OPTIONS /customer   ->  200, zero access-control-* headers
+```
+
+So `expo start --web` cannot read this API: `fetch` rejects and the app
+correctly reports "Unable to reach our servers" for a server that is answering
+perfectly well. `backend/config/cors.php` is the fix — copy it into the Laravel
+app and run `php artisan config:clear`. See `backend/README.md` step 7.
+
 ## What already exists
 
 Confirmed live on the deployed server:

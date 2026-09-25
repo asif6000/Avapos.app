@@ -174,6 +174,27 @@ agreement acceptance, enrollment, and anything written — stays on the REST API
 where the backend revalidates the contract. `src/supabase/queries.ts` contains
 no `.insert()`, `.update()`, `.upsert()` or `.delete()`, enforced by a test.
 
+> **Live state: the deployed API sends no CORS headers**, so no web build can
+> read it — a browser discards a response without
+> `Access-Control-Allow-Origin`, `fetch` rejects, and the app says "Unable to
+> reach our servers" about a server that is answering perfectly well. Native
+> builds are unaffected (React Native's fetch ignores CORS). Measured: the
+> preflight to `/customer` answers 200 with zero `access-control-*` headers. The
+> config is `backend/config/cors.php`; it has to be deployed and the cached
+> config cleared, so **this is not fixable from the app**. `ApiClient` logs the
+> destination of an unanswered request in `__DEV__` precisely so the next time
+> this happens it takes a minute rather than an afternoon.
+>
+> **Live state: most of what the app calls is not deployed.** Measured against
+> the live server with a valid session: `GET /customer` → 401 (no linked
+> customer), `GET /customer/payments` → 401 (same), `GET /customer/dashboard` →
+> 404, `GET /customer/profile` → 404. So once CORS and the customer link are in
+> place, the **Payments tab works** and Home, Device, Installments and Support
+> still error — those screens read the server-assembled views the contract
+> describes but the server has not built. The fix is those routes, not the app:
+> assembling device or installment state on the device to work around it is
+> exactly what this design forbids.
+>
 > **Live state: none of `sql/01-stop-the-bleed.sql`, `02-add-auth-link.sql` or
 > `03-owner-policies.sql` has been applied to the live project.** Measured: the
 > publishable key can read every table it should not (`profiles` returns 200,

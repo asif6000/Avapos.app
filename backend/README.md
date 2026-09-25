@@ -1,26 +1,21 @@
 # Backend — Supabase JWT authentication
 
-Supabase Auth now owns sign-in for the mobile app. The app requests an emailed
-6-digit code, Supabase issues a session, and that session's access token is
+Supabase Auth owns sign-in for the app. The customer enters an email address and
+a password, Supabase issues a session, and that session's access token is
 presented as the bearer on every API call.
 
-This replaced a set of local password-based auth routes. Supabase's email
-provider is enabled but its **sign-up toggle is off**, so OTP requests return:
-
-```
-422 {"error_code":"otp_disabled","msg":"Signups not allowed for otp"}
-```
+This replaced a set of local password-based auth routes.
 
 ## Before anything works
 
-1. **Enable email sign-up.** Supabase Dashboard → Authentication → Sign In /
-   Providers → Email → turn on the provider's signup toggle. Until then the app
-   cannot request a code, and no amount of server-side work changes that.
+1. **Run `sql/04-link-demo-customer.sql`**, then `sql/01-stop-the-bleed.sql` and
+   `sql/03-owner-policies.sql`. The anonymous key can currently read *and write*
+   customer tables, and `VerifySupabaseJwt` will correctly refuse every request
+   until an auth user can be matched to a customer row, because it looks the
+   customer up with `where('auth_uid', $userId)`.
 
-2. **Run `sql/01-stop-the-bleed.sql` and `sql/02-add-auth-link.sql`.** The
-   anonymous key can currently read *and write* `devices`. Until RLS is on and
-   `profiles.auth_uid` is backfilled, `VerifySupabaseJwt` will correctly refuse
-   every request, because no auth user can be matched to a customer.
+2. **Publish the CORS config** (`config/cors.php`, in this directory). A web
+   build cannot read a single response without it. See step 7 below.
 
 ## What is here
 
@@ -29,11 +24,12 @@ routes/customer-api.php                      the customer API routes
 app/Http/Middleware/VerifySupabaseJwt.php    validates the Supabase access token
 app/Http/Controllers/Api/CustomerPaymentController.php
 config/supabase.php
+config/cors.php                               so a web build can read responses
 ```
 
 ## Wire-up
 
-**1. Copy** the four files above into the Laravel app.
+**1. Copy** the files above into the Laravel app.
 
 **2. Add the project ref** to `.env`:
 
@@ -84,6 +80,27 @@ customer table is named differently.
 `store()` are marked `TODO` — they need your installment model and your gateway
 SDK. The amount check is the part that matters: the `amount` the phone sends is
 display-only and is compared against the contract, with a mismatch logged.
+
+**7. CORS, for the web build.** Copy `config/cors.php` across, or merge its keys
+into the one the app already has, and clear the cached config:
+
+```bash
+php artisan config:clear
+```
+
+Native builds do not care — React Native's fetch ignores CORS. A browser does,
+and without these headers it discards the response and rejects the request, so
+the app shows "Unable to reach our servers" for a server that is answering
+correctly. Check it with:
+
+```bash
+curl -sI -X OPTIONS https://srabontelecom.paymently.io/customer \
+  -H 'Origin: http://localhost:8081' \
+  -H 'Access-Control-Request-Method: GET' | grep -i access-control
+```
+
+An empty answer means the config is not loaded. `supports_credentials` is false
+because the credential is a bearer token, never a cookie.
 
 ## How the token is verified
 

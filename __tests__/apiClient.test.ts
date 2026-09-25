@@ -188,6 +188,28 @@ describe('ApiClient', () => {
     }
   });
 
+  it('logs where an unanswered request went, and never the token', async () => {
+    // A browser rejects a response with no `Access-Control-Allow-Origin` header
+    // exactly as it rejects an unreachable host, and the app can only report
+    // "unable to reach our servers". Without this line there is nothing on screen
+    // or in the console to tell those two apart.
+    const fetchImpl = jest.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const client = makeClient(fetchImpl);
+
+    try {
+      await expect(client.get('/profile')).rejects.toMatchObject({ kind: 'network' });
+      const logged = warn.mock.calls.flat().join(' ');
+      expect(logged).toContain(`${BASE}/profile`);
+      expect(logged).toMatch(/CORS/);
+      expect(logged).not.toContain('supabase-jwt');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('classifies HTTP statuses into customer-safe error kinds', () => {
     expect(statusToKind(400)).toBe('validation');
     expect(statusToKind(401)).toBe('unauthorized');
