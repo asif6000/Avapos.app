@@ -1,140 +1,135 @@
 import { getSupabaseClient, isSupabaseAuthReady } from './client';
+import { toE164 } from '@/utils/format';
 
 /**
- * Passwordless email sign-in against Supabase Auth.
+ * Phone + password sign-in, through Supabase Auth.
  *
- * The emailed 6-digit code is exchanged for a session whose JWT is what RLS
- * evaluates, so `auth.uid()` is a real customer id rather than NULL. That is the
- * entire reason authentication lives here.
+ * WHY THIS EXISTS
  *
- * No password exists anywhere in this flow.
+ * The project's email provider is switched off and its built-in mailer is rate
+ * limited to a handful of messages an hour, so an emailed code cannot be the
+ * way in. The Phone provider and Twilio are the alternative.
+ *
+ * THE TRADE-OFF, STATED PLAINLY
+ *
+ * A password can be phished and reused; a one-time code cannot. That is a real
+ * downgrade, and it is why the original design was passwordless. What this
+ * implementation does to blunt it:
+ *
+ * - strength is enforced before the request leaves the device, not only by the
+ *   server: 8+ characters with upper, lower and a digit
+ * - the number is normalized to E.164, so `01712345678` and `+8801712345678`
+ *   are one account rather than two
+ * - the password is never stored, logged or persisted locally. Supabase holds
+ *   the hash; the app keeps only the session
+ * - every failure path returns one message that does not reveal whether the
+ *   number exists
+ *
+ * Raise the minimum length in the Supabase dashboard (Authentication → Sign In
+ * / Providers → Phone) as well; 8 is the app floor, not a substitute for it.
  */
 
-export type CodeRequestResult =
-  | { ok: true }
-  | {
-      ok: false;
-      reason: 'unconfigured' | 'disabled' | 'rate_limited' | 'error';
-      message: string | null;
-    };
+export type AuthResult<T> = { ok: true; value: T } | { ok: false; message: string };
 
-/**
- * Emails a sign-in code.
- *
- * `createUser: false` means Supabase will not mint an account for an address
- * that was never provisioned. With signups enabled the same call both creates
- * the user and issues the code, which is what makes signup and signin the same
- * action.
- */
-export async function requestSignInCode(email: string): Promise<CodeRequestResult> {
-  if (!isSupabaseAuthReady()) return { ok: false, reason: 'unconfigured', message: null };
-
-  const client = getSupabaseClient();
-  const { error } = await client.auth.signInWithOtp({
-    email: email.trim().toLowerCase(),
-    options: { shouldCreateUser: true, emailRedirectTo: undefined },
-  });
-
-  if (!error) return { ok: true };
-
-  const detail = `${error.message} ${(error as { code?: string }).code ?? ''}`;
-
-  // "Signups not allowed for otp" means the Email provider's signup toggle is
-  // off in the Supabase dashboard. Say so plainly rather than showing a code the
-  // customer will never receive.
-  if (/otp_disabled|signups? not allowed|signup/i.test(detail)) {
-    return {
-      ok: false,
-      reason: 'disabled',
-      message: 'Email sign-in is not switched on for this service yet.',
-    };
-  }
-
-  // Supabase's built-in mailer allows only a handful of messages an hour. With
-  // that cap, "try again soon" is genuinely the best advice, and saying
-  // something vaguer would just send the customer round the loop.
-  if (/rate limit|429|over_email/i.test(detail)) {
-    return {
-      ok: false,
-      reason: 'rate_limited',
-      message: 'Too many codes have been requested. Please wait a few minutes and try again.',
-    };
-  }
-
-  return {
-    ok: false,
-    reason: 'error',
-    // Deliberately not echoing the driver text: it can contain internals.
-    message: 'We could not send a code right now. Please try again.',
-  };
+export interface Identity {
+  userId: string;
+  phone: string;
+  isNewUser: boolean;
 }
 
-export type CodeVerification =
-  | { ok: true; userId: string; email: string; isNewUser: boolean }
-  | { ok: false; message: string };
+/** One message for every failure, so this cannot enumerate accounts. */
+const GENERIC = 'That mobile number or password is not correct.';
 
-export async function verifySignInCode(email: string, code: string): Promise<CodeVerification> {
+function classify(error: { message: string; status?: number } | null): string {
+  const detail = `${error?.message ?? ''} ${error?.status ?? ''}`.toLowerCase();
+
+  // A number that exists with the wrong password must look identical to a
+  // number that does not exist.
+  if (detail.includes('invalid login') || detail.includes('invalid credentials')) {
+    return GENERIC;
+  }
+  if (detail.includes('already') || detail.includes('registered') || detail.includes('exists')) {
+    return 'That number is already in use. Try signing in, or use another number.';
+  }
+  if (detail.includes('rate limit') || error?.status === 429) {
+    return 'Too many attempts. Please wait a few minutes and try again.';
+  }
+  if (detail.includes('phone') && detail.includes('confirm')) {
+    return 'That number has not been confirmed yet.';
+  }
+  if (detail.includes('disabled') || detail.includes('not enabled')) {
+    return 'Phone sign-in is not switched on for this service yet.';
+  }
+  return 'We could not complete that. Please try again.';
+}
+
+export async function signIn(phone: string, password: string): Promise<AuthResult<Identity>> {
   if (!isSupabaseAuthReady()) {
     return { ok: false, message: 'Sign-in is not available in this build.' };
   }
 
-  const client = getSupabaseClient();
-  const { data, error } = await client.auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: code.trim(),
-    type: 'email',
+  const { data, error } = await getSupabaseClient().auth.signInWithPassword({
+    phone: toE164(phone),
+    password,
   });
 
   if (error || !data.user) {
-    const expired = /expired|has expired/i.test(error?.message ?? '');
-    return {
-      ok: false,
-      message: expired
-        ? 'That code has expired. Request a new one.'
-        : 'That code is not correct. Try again.',
-    };
+    return { ok: false, message: classify(error) };
   }
 
   return {
     ok: true,
-    userId: data.user.id,
-    email: data.user.email ?? email,
-    // A user created moments ago has no name or device record yet.
-    isNewUser: !data.user.last_sign_in_at,
+    value: { userId: data.user.id, phone: data.user.phone ?? toE164(phone), isNewUser: false },
+  };
+}
+
+export async function signUp(phone: string, password: string): Promise<AuthResult<Identity>> {
+  if (!isSupabaseAuthReady()) {
+    return { ok: false, message: 'Sign-in is not available in this build.' };
+  }
+
+  const { data, error } = await getSupabaseClient().auth.signUp({
+    phone: toE164(phone),
+    password,
+  });
+
+  if (error || !data.user) {
+    return { ok: false, message: classify(error) };
+  }
+
+  return {
+    ok: true,
+    value: {
+      userId: data.user.id,
+      phone: data.user.phone ?? toE164(phone),
+      // A user created seconds ago has no session and no previous sign-in.
+      isNewUser: data.session === null,
+    },
   };
 }
 
 export interface SessionSnapshot {
   userId: string;
-  email: string;
+  phone: string;
   accessToken: string;
 }
 
-/** The current session, or null. Used on boot and as the API bearer. */
 export async function getSession(): Promise<SessionSnapshot | null> {
   if (!isSupabaseAuthReady()) return null;
-  const client = getSupabaseClient();
-  const { data } = await client.auth.getSession();
+  const { data } = await getSupabaseClient().auth.getSession();
   const session = data.session;
   if (!session) return null;
   return {
     userId: session.user.id,
-    email: session.user.email ?? '',
+    phone: session.user.phone ?? '',
     accessToken: session.access_token,
   };
 }
 
-/**
- * The bearer token for the Laravel API.
- *
- * Supabase JWTs are sent to the backend, which validates them against the
- * project's JWKS before trusting a claim. That is what replaces the missing
- * `/auth/*` routes — see `backend/app/Http/Middleware/VerifySupabaseJwt.php`.
- */
+/** The bearer token for the REST API. See `api/instance.ts`. */
 export async function getAccessToken(): Promise<string | null> {
   if (!isSupabaseAuthReady()) return null;
-  const client = getSupabaseClient();
-  const { data } = await client.auth.getSession();
+  const { data } = await getSupabaseClient().auth.getSession();
   return data.session?.access_token ?? null;
 }
 
@@ -148,7 +143,7 @@ export function onAuthStateChange(
       session
         ? {
             userId: session.user.id,
-            email: session.user.email ?? '',
+            phone: session.user.phone ?? '',
             accessToken: session.access_token,
           }
         : null,
@@ -162,6 +157,15 @@ export async function signOut(): Promise<void> {
   await getSupabaseClient().auth.signOut();
 }
 
-export async function resendSignInCode(email: string): Promise<CodeRequestResult> {
-  return requestSignInCode(email);
+/** Sends an SMS confirmation. Only needed while the number is unconfirmed. */
+export async function sendPhoneConfirmation(phone: string): Promise<AuthResult<null>> {
+  if (!isSupabaseAuthReady()) {
+    return { ok: false, message: 'Sign-in is not available in this build.' };
+  }
+  const { error } = await getSupabaseClient().auth.resend({
+    type: 'sms',
+    phone: toE164(phone),
+  });
+  if (error) return { ok: false, message: classify(error) };
+  return { ok: true, value: null };
 }

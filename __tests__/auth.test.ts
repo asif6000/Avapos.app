@@ -1,15 +1,10 @@
 import { useAuthStore } from '@/store/authStore';
-import {
-  getSession,
-  requestSignInCode,
-  signOut,
-  verifySignInCode,
-} from '@/supabase/auth';
+import { getSession, signIn, signOut, signUp } from '@/supabase/auth';
 
 jest.mock('@/supabase/auth', () => ({
   getSession: jest.fn(),
-  requestSignInCode: jest.fn(),
-  verifySignInCode: jest.fn(),
+  signIn: jest.fn(),
+  signUp: jest.fn(),
   signOut: jest.fn(),
   onAuthStateChange: jest.fn(() => ({ unsubscribe: jest.fn() })),
 }));
@@ -23,28 +18,19 @@ jest.mock('@/supabase/client', () => ({
 
 const authMock = {
   getSession: getSession as jest.MockedFunction<typeof getSession>,
-  requestSignInCode: requestSignInCode as jest.MockedFunction<typeof requestSignInCode>,
-  verifySignInCode: verifySignInCode as jest.MockedFunction<typeof verifySignInCode>,
+  signIn: signIn as jest.MockedFunction<typeof signIn>,
+  signUp: signUp as jest.MockedFunction<typeof signUp>,
   signOut: signOut as jest.MockedFunction<typeof signOut>,
 };
 
-const session = {
-  userId: '9f1c2b3a-0000-4000-8000-000000000001',
-  email: 'ayesha@example.com',
-  accessToken: 'supabase-jwt',
-};
+const session = { userId: 'u-1', phone: '+8801712345678', accessToken: 'supabase-jwt' };
+const identity = { userId: 'u-1', phone: '+8801712345678', isNewUser: false };
 
 function resetStore() {
-  useAuthStore.setState({
-    status: 'loading',
-    profile: null,
-    error: null,
-    pendingEmail: null,
-    otpResendAvailableAt: null,
-  });
+  useAuthStore.setState({ status: 'loading', profile: null, error: null, lastPhone: null });
 }
 
-describe('auth store (Supabase passwordless)', () => {
+describe('auth store (phone and password)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     resetStore();
@@ -62,118 +48,77 @@ describe('auth store (Supabase passwordless)', () => {
 
     expect(useAuthStore.getState().status).toBe('authenticated');
     expect(useAuthStore.getState().profile).toMatchObject({
-      userId: session.userId,
-      email: 'ayesha@example.com',
+      userId: 'u-1',
+      phone: '+8801712345678',
     });
   });
 
-  it('sends no password, only the address', async () => {
-    authMock.requestSignInCode.mockResolvedValue({ ok: true });
+  it('normalizes the number so one number is always one account', async () => {
+    authMock.signIn.mockResolvedValue({ ok: true, value: identity });
 
-    await useAuthStore.getState().requestCode('  Ayesha@Example.COM ');
+    await useAuthStore.getState().signIn('  +880 1712-345678 ', 'Sup3rSecret!');
 
-    expect(authMock.requestSignInCode).toHaveBeenCalledWith('ayesha@example.com');
+    expect(authMock.signIn).toHaveBeenCalledWith('8801712345678', 'Sup3rSecret!');
   });
 
-  it('records the address a code is outstanding for', async () => {
-    authMock.requestSignInCode.mockResolvedValue({ ok: true });
+  it('signs in and records the Supabase user id', async () => {
+    authMock.signIn.mockResolvedValue({ ok: true, value: identity });
 
-    await useAuthStore.getState().requestCode('ayesha@example.com');
+    const profile = await useAuthStore.getState().signIn('01712345678', 'Sup3rSecret!');
 
-    expect(useAuthStore.getState().pendingEmail).toBe('ayesha@example.com');
-    expect(useAuthStore.getState().otpResendAvailableAt).toBeGreaterThan(Date.now());
-  });
-
-  it('reports a disabled email provider instead of a generic failure', async () => {
-    authMock.requestSignInCode.mockResolvedValue({
-      ok: false,
-      reason: 'disabled',
-      message: 'Email sign-in is not switched on for this service yet.',
-    });
-
-    await expect(
-      useAuthStore.getState().requestCode('ayesha@example.com'),
-    ).rejects.toThrow();
-
-    expect(useAuthStore.getState().error).toBe(
-      'Email sign-in is not switched on for this service yet.',
-    );
-  });
-
-  it('advises waiting when the mail provider rate-limits us', async () => {
-    authMock.requestSignInCode.mockResolvedValue({
-      ok: false,
-      reason: 'rate_limited',
-      message: 'Too many codes have been requested. Please wait a few minutes and try again.',
-    });
-
-    await expect(
-      useAuthStore.getState().requestCode('ayesha@example.com'),
-    ).rejects.toThrow();
-
-    expect(useAuthStore.getState().error).toBe(
-      'Too many codes have been requested. Please wait a few minutes and try again.',
-    );
-  });
-
-  it('completes sign-in and records the Supabase user id', async () => {
-    authMock.verifySignInCode.mockResolvedValue({
-      ok: true,
-      userId: session.userId,
-      email: 'ayesha@example.com',
-      isNewUser: false,
-    });
-
-    const profile = await useAuthStore.getState().verifyCode('ayesha@example.com', '123456');
-
-    expect(authMock.verifySignInCode).toHaveBeenCalledWith('ayesha@example.com', '123456');
-    expect(profile.userId).toBe(session.userId);
+    expect(profile.userId).toBe('u-1');
     expect(useAuthStore.getState().status).toBe('authenticated');
   });
 
-  it('flags a brand new user so the app can collect their details', async () => {
-    authMock.verifySignInCode.mockResolvedValue({
-      ok: true,
-      userId: session.userId,
-      email: 'new@example.com',
-      isNewUser: true,
-    });
+  it('never keeps the password anywhere in the store', async () => {
+    authMock.signIn.mockResolvedValue({ ok: true, value: identity });
 
-    const profile = await useAuthStore.getState().verifyCode('new@example.com', '000000');
+    await useAuthStore.getState().signIn('01712345678', 'Sup3rSecret!');
 
-    expect(profile.isNewUser).toBe(true);
+    expect(JSON.stringify(useAuthStore.getState())).not.toContain('Sup3rSecret!');
   });
 
-  it('surfaces a customer-safe message for a wrong code', async () => {
-    authMock.verifySignInCode.mockResolvedValue({
+  it('surfaces a customer-safe message on a bad password', async () => {
+    authMock.signIn.mockResolvedValue({
       ok: false,
-      message: 'That code is not correct. Try again.',
+      message: 'That mobile number or password is not correct.',
     });
 
     await expect(
-      useAuthStore.getState().verifyCode('ayesha@example.com', '000000'),
+      useAuthStore.getState().signIn('01712345678', 'wrong-password'),
     ).rejects.toThrow();
 
-    expect(useAuthStore.getState().error).toBe('That code is not correct. Try again.');
+    expect(useAuthStore.getState().error).toBe('That mobile number or password is not correct.');
     expect(useAuthStore.getState().status).not.toBe('authenticated');
   });
 
-  it('distinguishes an expired code', async () => {
-    authMock.verifySignInCode.mockResolvedValue({
+  it('creates an account on sign-up', async () => {
+    authMock.signUp.mockResolvedValue({ ok: true, value: { ...identity, isNewUser: true } });
+
+    const profile = await useAuthStore.getState().signUp('01712345678', 'Sup3rSecret!');
+
+    expect(authMock.signUp).toHaveBeenCalledWith('8801712345678', 'Sup3rSecret!');
+    expect(profile.isNewUser).toBe(true);
+  });
+
+  it('reports a number already in use without confirming it exists', async () => {
+    authMock.signUp.mockResolvedValue({
       ok: false,
-      message: 'That code has expired. Request a new one.',
+      message: 'That number is already in use. Try signing in, or use another number.',
     });
 
     await expect(
-      useAuthStore.getState().verifyCode('ayesha@example.com', '000000'),
+      useAuthStore.getState().signUp('01712345678', 'Sup3rSecret!'),
     ).rejects.toThrow();
 
-    expect(useAuthStore.getState().error).toBe('That code has expired. Request a new one.');
+    expect(useAuthStore.getState().error).toBe(
+      'That number is already in use. Try signing in, or use another number.',
+    );
   });
 
   it('holds the display name in memory rather than writing to the database', () => {
     useAuthStore.setState({
-      profile: { userId: 'u', email: 'a@b.com', fullName: '', isNewUser: true },
+      profile: { userId: 'u', phone: '+8801712345678', fullName: '', isNewUser: true },
     });
 
     useAuthStore.getState().setDisplayName('  Ayesha Rahman  ');
@@ -182,13 +127,8 @@ describe('auth store (Supabase passwordless)', () => {
   });
 
   it('clears everything on sign out', async () => {
-    authMock.verifySignInCode.mockResolvedValue({
-      ok: true,
-      userId: session.userId,
-      email: 'ayesha@example.com',
-      isNewUser: false,
-    });
-    await useAuthStore.getState().verifyCode('ayesha@example.com', '123456');
+    authMock.signIn.mockResolvedValue({ ok: true, value: identity });
+    await useAuthStore.getState().signIn('01712345678', 'Sup3rSecret!');
     useAuthStore.getState().setDisplayName('Ayesha Rahman');
 
     await useAuthStore.getState().signOut();

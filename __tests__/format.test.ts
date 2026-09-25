@@ -2,6 +2,8 @@ import { RESTRICTED_STATES, isDeviceState } from '@/types/domain';
 import { createTranslator } from '@/i18n';
 import {
   formatCurrency,
+  passwordProblems,
+  toE164,
   isValidBdPhone,
   isValidEmail,
   maskEmail,
@@ -22,6 +24,22 @@ describe('formatting', () => {
 
   it('compacts large balances into lakh for the dashboard hero', () => {
     expect(formatCurrency(250000, { compact: true })).toBe('৳2.5 লক্ষ');
+  });
+
+  it('converts local numbers to the E.164 form Supabase expects', () => {
+    expect(toE164('01712345678')).toBe('+8801712345678');
+    expect(toE164('+880 1712-345678')).toBe('+8801712345678');
+    expect(toE164('8801712345678')).toBe('+8801712345678');
+  });
+
+  it('rejects weak passwords before they are transmitted', () => {
+    expect(passwordProblems('Sup3rSecret!')).toEqual([]);
+    expect(passwordProblems('short1A')).toContain('length');
+    expect(passwordProblems('alllowercase1')).toContain('case');
+    expect(passwordProblems('NoDigitsHere')).toContain('digit');
+    // "password" is exactly 8 characters, so length is the one rule it passes.
+    expect(passwordProblems('password')).toEqual(['case', 'digit']);
+    expect(passwordProblems('pass')).toEqual(['length', 'case', 'digit']);
   });
 
   it('validates and normalizes email addresses', () => {
@@ -80,7 +98,7 @@ describe('localization', () => {
   });
 
   it('interpolates parameters', () => {
-    expect(t('auth.otpSubtitle', { email: 'a***@example.com' })).toContain('a***@example.com');
+    expect(t('auth.welcomeBack', { phone: '880******678' })).toContain('880******678');
   });
 
   it('falls back to English for an unknown key', () => {
@@ -91,5 +109,6 @@ describe('localization', () => {
     const bn = createTranslator('bn');
     expect(bn('common.retry')).toBe('আবার চেষ্টা');
     expect(bn('states.RESTRICTED')).toBe('সীমাবদ্ধ');
+    expect(bn('auth.invalidPhone')).toBe('সঠিক বাংলাদেশি মোবাইল নম্বর দিন।');
   });
 });

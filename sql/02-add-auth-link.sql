@@ -17,10 +17,10 @@
 -- a per-customer policy can be written.
 --
 -- A BIGGER QUESTION THIS SCRIPT EXPOSES
--- RLS only works if the app holds a Supabase Auth session. Today the app signs
--- in against your REST API (phone + password / OTP) and holds its own tokens.
--- If customers never authenticate through Supabase Auth, auth.uid() is always
--- NULL and EVERY RLS policy denies everything.
+-- RLS only works if the app holds a Supabase Auth session. The app now signs
+-- in through Supabase Auth with a mobile number and password, so it does hold
+-- one — but that session's `sub` must be matched to a `profiles` row by the
+-- backfill below. Until it is, every policy resolves to "no rows".
 --
 -- So one of these must be true before 03 is useful:
 --
@@ -75,16 +75,16 @@ create index if not exists support_tickets_customer_key_idx
 -- ---------------------------------------------------------------------------
 -- 3. Backfill profiles.auth_uid from your auth users.
 --
---    ADJUST to however you actually map a customer to an auth user. If
---    profiles.phone_number is what you signed users up with, use that.
---    If there is no existing mapping yet, this returns 0 and that is your
---    answer: you have not linked customers to Supabase Auth yet.
+--    Sign-in is by MOBILE NUMBER, so the join is on `auth.users.phone`.
+--    Supabase stores it in E.164 (`+8801712345678`) while profiles hold it as
+--    `+880 1700000000`, so normalise the formatting on both sides before
+--    comparing. A mismatch here is why every request 401s.
 -- ---------------------------------------------------------------------------
--- update public.profiles p
---    set auth_uid = u.id
---   from auth.users u
---  where u.phone = p.phone_number
---    and p.auth_uid is null;
+update public.profiles p
+   set auth_uid = u.id
+  from auth.users u
+ where regexp_replace(u.phone, '[^0-9]', '', 'g') = regexp_replace(p.phone_number, '[^0-9]', '', 'g')
+   and p.auth_uid is null;
 
 select count(*) as profiles_linked
   from public.profiles

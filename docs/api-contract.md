@@ -21,12 +21,15 @@ Confirmed live on the deployed server:
 | `POST` | `/customer/payments/create` | yes | Create the gateway order |
 | `POST` | `/customer/logout` | yes | Revokes the session |
 
-## What is missing — and why sign-in cannot work
+## Authentication
 
-**There is no authentication route on the backend.** Probed exhaustively
-(`/api`, `/customer`, `/v1`, `/app`, `/rest`, plus every Laravel/Sanctum
-convention); every auth path returns 404. Until one of these exists, the app
-cannot sign anyone in, and it correctly shows an error rather than pretending.
+**Supabase Auth owns sign-in**, not this API. The app presents a Supabase access
+token as its bearer; `backend/app/Http/Middleware/VerifySupabaseJwt.php`
+verifies the signature against the project's JWKS and resolves the customer via
+`profiles.auth_uid`. See `backend/README.md`.
+
+The routes below are the local-auth design that was replaced. They are kept here
+only as a record of what the backend would need if Supabase were ever dropped.
 
 ### 1. `POST /customer/auth/request-code` — no auth
 

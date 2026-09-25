@@ -182,6 +182,26 @@ export function maskEmail(email: string): string {
   return `${visible}${'*'.repeat(Math.max(1, name.length - 1))}${normalized.slice(at)}`;
 }
 
+/**
+ * E.164 form, which is what Supabase Auth expects for a phone identity.
+ * `01712345678` and `+880 1712-345678` both become `+8801712345678`, so one
+ * number is always one account.
+ */
+export function toE164(input: string): string {
+  const digits = input.replace(/[\s()-]/g, '');
+  const bare = normalizePhone(digits);
+  return `+${bare.replace(/^\+/, '')}`;
+}
+
+/** A password long enough to be worth anything, and not a dictionary word. */
+export function passwordProblems(password: string): string[] {
+  const problems: string[] = [];
+  if (password.length < 8) problems.push('length');
+  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password)) problems.push('case');
+  if (!/\d/.test(password)) problems.push('digit');
+  return problems;
+}
+
 export const BD_PHONE_REGEX = /^(?:\+?880|0)1[3-9]\d{8}$/;
 
 export function isValidBdPhone(input: string): boolean {

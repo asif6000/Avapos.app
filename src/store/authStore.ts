@@ -1,19 +1,13 @@
 import { create } from 'zustand';
 
-import {
-  getSession,
-  onAuthStateChange,
-  requestSignInCode,
-  signOut,
-  verifySignInCode,
-} from '@/supabase/auth';
+import { getSession, onAuthStateChange, signIn, signOut, signUp } from '@/supabase/auth';
 import { canReadDirectly } from '@/supabase/client';
-import { normalizeEmail } from '@/utils/format';
+import { normalizePhone } from '@/utils/format';
 
 /**
  * Authentication state, backed by Supabase Auth.
  *
- * Passwordless: an emailed 6-digit code, no password anywhere. The session's
+ * Phone number and password. The session's
  * JWT is what row level security evaluates, so a signed-in customer gets a real
  * `auth.uid()` instead of NULL — which is what lets the policies in
  * `sql/03-owner-policies.sql` match rows to a person.
@@ -27,7 +21,7 @@ export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
 export interface Profile {
   userId: string;
-  email: string;
+  phone: string;
   fullName: string;
   isNewUser: boolean;
 }
@@ -36,30 +30,24 @@ interface AuthState {
   status: AuthStatus;
   profile: Profile | null;
   error: string | null;
-  /** Address a code is currently outstanding for. */
-  pendingEmail: string | null;
-  otpResendAvailableAt: number | null;
+  /** True once the customer has chosen a number, so the app can prefill it. */
+  lastPhone: string | null;
   /** False until `verify:rls` passes; drives the "direct reads" notice. */
   directReadsEnabled: boolean;
   bootstrap: () => Promise<void>;
-  requestCode: (email: string) => Promise<void>;
-  resendCode: (email: string) => Promise<void>;
-  verifyCode: (email: string, code: string) => Promise<Profile>;
+  signIn: (phone: string, password: string) => Promise<Profile>;
+  signUp: (phone: string, password: string) => Promise<Profile>;
   setDisplayName: (fullName: string) => void;
   signOut: () => Promise<void>;
   clearError: () => void;
-  setPendingEmail: (email: string, resendAvailableAt: number | null) => void;
   subscribe: () => () => void;
 }
-
-const RESEND_AFTER_SECONDS = 60;
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   status: 'loading',
   profile: null,
   error: null,
-  pendingEmail: null,
-  otpResendAvailableAt: null,
+  lastPhone: null,
   directReadsEnabled: canReadDirectly(),
 
   async bootstrap() {
@@ -72,9 +60,10 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
     set({
       status: 'authenticated',
+      lastPhone: session.phone,
       profile: {
         userId: session.userId,
-        email: session.email,
+        phone: session.phone,
         fullName: get().profile?.fullName ?? '',
         isNewUser: false,
       },
@@ -82,59 +71,49 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
 
-  async requestCode(rawEmail) {
+  async signIn(rawPhone, password) {
     set({ error: null });
-    // Normalized here, not by callers, so `Ayesha@Example.com` and
-    // `ayesha@example.com` can never become two accounts.
-    const email = normalizeEmail(rawEmail);
-    const result = await requestSignInCode(email);
-
-    if (!result.ok) {
-      set({ error: result.message ?? 'We could not send a code right now.' });
-      throw new Error(result.reason);
-    }
-
-    set({
-      pendingEmail: email,
-      otpResendAvailableAt: Date.now() + RESEND_AFTER_SECONDS * 1000,
-    });
-  },
-
-  async resendCode(rawEmail) {
-    set({ error: null });
-    const result = await requestSignInCode(normalizeEmail(rawEmail));
-
-    if (!result.ok) {
-      set({ error: result.message ?? 'We could not send a code right now.' });
-      return;
-    }
-    set({ otpResendAvailableAt: Date.now() + RESEND_AFTER_SECONDS * 1000 });
-  },
-
-  async verifyCode(rawEmail, code) {
-    set({ error: null });
-    const result = await verifySignInCode(normalizeEmail(rawEmail), code);
+    // Normalized here, not by callers, so `01712345678` and `+8801712345678`
+    // can never become two accounts.
+    const phone = normalizePhone(rawPhone);
+    const result = await signIn(phone, password);
 
     if (!result.ok) {
       set({ error: result.message });
-      throw new Error('invalid-code');
+      throw new Error('sign-in-failed');
     }
 
     const profile: Profile = {
-      userId: result.userId,
-      email: result.email,
+      userId: result.value.userId,
+      phone: result.value.phone,
       fullName: '',
-      isNewUser: result.isNewUser,
+      isNewUser: false,
     };
 
-    set({
-      status: 'authenticated',
-      profile,
-      pendingEmail: null,
-      otpResendAvailableAt: null,
-      error: null,
-    });
+    set({ status: 'authenticated', profile, lastPhone: phone, error: null });
+    return profile;
+  },
 
+  async signUp(rawPhone, password) {
+    set({ error: null });
+    const phone = normalizePhone(rawPhone);
+    const result = await signUp(phone, password);
+
+    if (!result.ok) {
+      set({ error: result.message });
+      throw new Error('sign-up-failed');
+    }
+
+    const profile: Profile = {
+      userId: result.value.userId,
+      phone: result.value.phone,
+      fullName: '',
+      isNewUser: result.value.isNewUser,
+    };
+
+    // A brand new account may have no session yet if the number still needs
+    // confirming, so the UI must not assume it is signed in.
+    set({ status: 'authenticated', profile, lastPhone: phone, error: null });
     return profile;
   },
 
@@ -150,17 +129,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       status: 'unauthenticated',
       profile: null,
       error: null,
-      pendingEmail: null,
-      otpResendAvailableAt: null,
     });
   },
 
   clearError() {
     set({ error: null });
-  },
-
-  setPendingEmail(email, resendAvailableAt) {
-    set({ pendingEmail: email, otpResendAvailableAt: resendAvailableAt });
   },
 
   /**
@@ -178,7 +151,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           status: 'authenticated',
           profile: {
             userId: session.userId,
-            email: session.email,
+            phone: session.phone,
             fullName: '',
             isNewUser: false,
           },

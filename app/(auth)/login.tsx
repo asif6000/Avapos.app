@@ -9,28 +9,24 @@ import { z } from 'zod';
 import { Screen } from '@/components/Screen';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
-import { isValidEmail, normalizeEmail } from '@/utils/format';
+import { isValidBdPhone, maskPhone } from '@/utils/format';
 
 const schema = z.object({
-  email: z
+  phone: z
     .string()
     .min(1, 'required')
-    .refine((value) => isValidEmail(value), { message: 'email' }),
+    .refine((value) => isValidBdPhone(value), { message: 'phone' }),
+  password: z.string().min(1, 'required'),
 });
 
 type FormValues = z.infer<typeof schema>;
 
-/**
- * Sign in and sign up are the same screen. The customer enters an address, the
- * backend mails a code, and that code either signs them in or creates their
- * account on first use. There is no password field, because there are no
- * passwords.
- */
 export default function LoginScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
   const router = useRouter();
-  const requestCode = useAuthStore((state) => state.requestCode);
+  const signIn = useAuthStore((state) => state.signIn);
+  const lastPhone = useAuthStore((state) => state.lastPhone);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -40,18 +36,19 @@ export default function LoginScreen() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: '' },
+    defaultValues: { phone: lastPhone ?? '', password: '' },
   });
 
   const onSubmit = handleSubmit(async (values) => {
     setSubmitting(true);
     setNotice(null);
     try {
-      const email = normalizeEmail(values.email);
-      await requestCode(email);
-      router.push({ pathname: '/(auth)/otp', params: { email } });
+      const profile = await signIn(values.phone, values.password);
+      if (profile.isNewUser) {
+        router.replace('/(auth)/register');
+      }
     } catch {
-      // The store already holds a customer-safe message; never echo a driver error.
+      // The store holds a customer-safe message; never echo a driver error.
       setNotice(useAuthStore.getState().error);
     } finally {
       setSubmitting(false);
@@ -79,25 +76,47 @@ export default function LoginScreen() {
 
           <Controller
             control={control}
-            name="email"
+            name="phone"
             render={({ field: { onChange, onBlur, value } }) => (
               <View>
                 <TextInput
                   mode="outlined"
-                  label={t('auth.emailLabel')}
-                  placeholder="name@example.com"
+                  label={t('auth.phone')}
+                  placeholder={t('auth.phonePlaceholder')}
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
-                  keyboardType="email-address"
-                  autoComplete="email"
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
                   autoCapitalize="none"
-                  autoCorrect={false}
-                  error={Boolean(errors.email)}
-                  testID="login-email"
+                  error={Boolean(errors.phone)}
+                  testID="login-phone"
                 />
-                <HelperText type="error" visible={Boolean(errors.email)}>
-                  {errors.email?.message === 'email' ? t('auth.invalidEmail') : t('common.required')}
+                <HelperText type="error" visible={Boolean(errors.phone)}>
+                  {errors.phone?.message === 'phone' ? t('auth.invalidPhone') : t('common.required')}
+                </HelperText>
+              </View>
+            )}
+          />
+
+          <Controller
+            control={control}
+            name="password"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <View>
+                <TextInput
+                  mode="outlined"
+                  label={t('auth.password')}
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                  secureTextEntry
+                  autoComplete="current-password"
+                  error={Boolean(errors.password)}
+                  testID="login-password"
+                />
+                <HelperText type="error" visible={Boolean(errors.password)}>
+                  {t('common.required')}
                 </HelperText>
               </View>
             )}
@@ -112,18 +131,20 @@ export default function LoginScreen() {
             style={styles.button}
             testID="login-submit"
           >
-            {t('auth.sendCode')}
+            {t('auth.signIn')}
           </Button>
-
-          <Text variant="bodySmall" style={styles.note}>
-            {t('auth.noPasswordNote')}
-          </Text>
 
           <View style={styles.footer}>
             <Button mode="text" onPress={() => router.push('/(auth)/register')}>
               {t('auth.noAccount')}
             </Button>
           </View>
+
+          {lastPhone ? (
+            <Text variant="bodySmall" style={styles.note}>
+              {t('auth.welcomeBack', { phone: maskPhone(lastPhone) })}
+            </Text>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
 
@@ -140,6 +161,6 @@ const styles = StyleSheet.create({
   header: { marginBottom: 24, gap: 4 },
   button: { marginTop: 12, borderRadius: 999 },
   buttonContent: { height: 52 },
-  note: { textAlign: 'center', marginTop: 12 },
+  note: { textAlign: 'center', marginTop: 16 },
   footer: { marginTop: 8, alignItems: 'center' },
 });
