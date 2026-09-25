@@ -13,8 +13,9 @@
  *   `contract_id` are server-authoritative. The app reads them; it must never
  *   write them. There is deliberately no update policy on `devices`.
  * - `payments` and `support_tickets` had no owner column at the time of writing.
- *   `sql/fix-rls.sql` adds `customer_id` to both; RLS cannot scope a table with
- *   no owner. If `customer_id` is missing below, the fix has not been applied.
+ *   `sql/04-link-demo-customer.sql` adds the owner column to `payments`; RLS
+ *   cannot scope a table with no owner. If it is missing below, that file has
+ *   not been run.
  * - Every table is expected to be RLS-scoped to `auth.uid()`. `npm run verify:rls`
  *   must pass before `EXPO_PUBLIC_SUPABASE_READS_ENABLED` may be set to "true".
  */
@@ -48,7 +49,7 @@ export interface DeviceRow {
 
 export interface PaymentRow {
   transaction_id: string;
-  /** Added by sql/fix-rls.sql — required for RLS to scope this table. */
+  /** Added by sql/04-link-demo-customer.sql — required for RLS to scope this. */
   customer_id?: string | null;
   installment_number: number | null;
   amount: number;
@@ -61,7 +62,7 @@ export interface PaymentRow {
 
 export interface NotificationRow {
   id: string;
-  /** Added by sql/fix-rls.sql — required for RLS to scope this table. */
+  /** Added by sql/04-link-demo-customer.sql — required for RLS to scope this. */
   customer_id?: string | null;
   type: string;
   title: string;
@@ -73,7 +74,7 @@ export interface NotificationRow {
 
 export interface SupportTicketRow {
   id: string;
-  /** Added by sql/fix-rls.sql — required for RLS to scope this table. */
+  /** Added by sql/04-link-demo-customer.sql — required for RLS to scope this. */
   customer_id?: string | null;
   subject: string;
   message: string;

@@ -162,8 +162,11 @@ if (leaking.length || writable.length) {
     console.error(`      writable: ${writable.map((r) => r.table).join(', ')}`);
   }
   console.error('');
-  console.error('      Keep EXPO_PUBLIC_SUPABASE_READS_ENABLED=false and run sql/fix-rls.sql');
-  console.error('      in the Supabase SQL editor. See that file for the per-table policies.');
+  console.error('      Keep EXPO_PUBLIC_SUPABASE_READS_ENABLED=false and run, in order:');
+  console.error('        sql/01-stop-the-bleed.sql   — enable RLS, revoke anon');
+  console.error('        sql/04-link-demo-customer.sql — the owner columns 01 and 03 read');
+  console.error('        sql/03-owner-policies.sql   — the per-customer policies');
+  console.error('      in the Supabase SQL editor, then re-run this script.');
   process.exit(1);
 }
 

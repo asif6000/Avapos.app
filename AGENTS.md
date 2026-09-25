@@ -128,13 +128,20 @@ The client owns no refresh logic: a 401 means the session is gone, and the only
 honest response is to sign out. The Supabase session itself lives in
 AsyncStorage, since that is what it is; the app stores no other secret.
 
-> **Live state: the project's built-in mailer is rate limited to a handful of
-> messages an hour**, which currently blocks the confirmation and reset emails
-> signup depends on. `POST /auth/v1/signup` answers `429 email rate limit
-> exceeded` and creates no account at all, so on the real project nobody can
-> register and no seeded credential can work. Add a custom SMTP provider
-> (Supabase → Settings → Providers → Email → SMTP) before real customers sign
-> up; `npm run check:signup` reports which of the two states the project is in.
+> **Live state: "Confirm email" is now OFF on the project**
+> (`mailer_autoconfirm: true`, measured via `/auth/v1/settings`), so signup
+> issues a session immediately and the mailer rate limit no longer blocks
+> anything. `asifghe78@gmail.com` / `Passw0rd!` exists on the **real** project
+> now, not only in the mock, and `POST /auth/v1/token?grant_type=password`
+> returns 200 for it. Two consequences worth remembering:
+>
+> - No address is verified any more. Anyone who can type an address can hold a
+>   session, which is why `sql/04-link-demo-customer.sql` deliberately does *not*
+>   create a profile row per signup: a customer row is what the backend
+>   authorises, and a phone must never be able to mint one. Add a custom SMTP
+>   provider (Supabase → Settings → Providers → Email → SMTP) and turn
+>   confirmation back on before real customers sign up.
+> - `npm run check:signup` still reports which state the project is in.
 
 **Authorization.** Requests are scoped by the session token alone. The app never
 sends `customerId`, `deviceId` or `contractId` to authorize anything, and uses
@@ -167,11 +174,26 @@ agreement acceptance, enrollment, and anything written — stays on the REST API
 where the backend revalidates the contract. `src/supabase/queries.ts` contains
 no `.insert()`, `.update()`, `.upsert()` or `.delete()`, enforced by a test.
 
-> **Live state: the Supabase project's RLS was found disabled.** See
-> `sql/fix-rls.sql` and run `npm run verify:rls` after applying it.
-> `EXPO_PUBLIC_SUPABASE_READS_ENABLED` stays `false` until it passes.
-> `src/supabase/types.ts` is hand-corrected from the live schema; regenerate it
-> with `supabase gen types typescript` before relying on it long-term.
+> **Live state: none of `sql/01-stop-the-bleed.sql`, `02-add-auth-link.sql` or
+> `03-owner-policies.sql` has been applied to the live project.** Measured: the
+> publishable key can read every table it should not (`profiles` returns 200,
+> so RLS is off), `profiles.auth_uid` does not exist, `profiles` has no rows,
+> and `payments` has no owner column. Consequences, in order of what you hit
+> first:
+>
+> 1. `GET /customer` answers **401 "Unauthorized request"** even for a valid
+>    session: the backend resolves the customer with
+>    `Customer::where('auth_uid', $userId)`
+>    (`backend/app/Http/Middleware/VerifySupabaseJwt.php:60`) and there is no
+>    column and no row to match. Run `sql/04-link-demo-customer.sql` first —
+>    it adds the column, creates the one demo customer, links it by email and
+>    adds `payments.customer_key`, which the deployed
+>    `CustomerPaymentController` queries but the live table lacks.
+> 2. `EXPO_PUBLIC_SUPABASE_READS_ENABLED` stays `false`: direct PostgREST reads
+>    are not scoped to anyone until 01 and 03 are run and
+>    `npm run verify:rls` passes.
+> 3. `src/supabase/types.ts` is hand-corrected from the live schema; regenerate
+>    it with `supabase gen types typescript` before relying on it long-term.
 
 **Permissions.** `plugins/withDeviceManagement.ts` strips every Android
 permission outside its allow-list at prebuild time, and `app.config.ts`
