@@ -11,7 +11,7 @@ import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useTicket } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { formatDateTime, ticketStatusLabel } from '@/utils/format';
-import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
+import { useLayout, spacing, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import type { TicketStatus } from '@/types/domain';
 
 const TICKET_TONES: Record<TicketStatus, BadgeTone> = {
@@ -85,5 +85,5 @@ export default function TicketDetailScreen() {
 
 const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.md },
 });

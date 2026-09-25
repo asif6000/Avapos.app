@@ -90,6 +90,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
+    // Beside a long title, a badge that compressed would read as a different,
+    // smaller status. It keeps its size and the row wraps instead.
+    flexShrink: 0,
     gap: 6,
     borderRadius: 999,
     paddingHorizontal: 10,

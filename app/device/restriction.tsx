@@ -11,7 +11,7 @@ import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useDeviceStatus, useSyncDevice } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { deviceStateLabel, formatCurrency, formatDate } from '@/utils/format';
-import { useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
+import { useLayout, spacing, CONTENT_MAX_WIDTH } from '@/theme/layout';
 
 /**
  * Customer-facing restriction status.
@@ -43,7 +43,11 @@ export default function DeviceRestrictionScreen() {
           <>
             <SectionCard style={{ borderColor: theme.colors.error }}>
               <View style={styles.headerRow}>
-                <Text variant="titleLarge" style={{ color: theme.colors.onSurface, fontWeight: '700', flex: 1 }}>
+                <Text
+                  variant="titleLarge"
+                  numberOfLines={2}
+                  style={{ color: theme.colors.onSurface, fontWeight: '700', flex: 1, minWidth: 0 }}
+                >
                   {t('device.restrictedTitle')}
                 </Text>
                 {data ? deviceStateBadge(data.deviceState, deviceStateLabel(data.deviceState, t)) : null}
@@ -86,6 +90,6 @@ export default function DeviceRestrictionScreen() {
 
 const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.md },
   buttonContent: { height: 52 },
 });

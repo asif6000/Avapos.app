@@ -381,6 +381,121 @@ function error(response, status, code, message) {
   json(response, status, { code, error_code: code, msg: message, message });
 }
 
+/** ৳1,234 — formatted the way the app shows money, so the two agree. */
+function taka(amount) {
+  return `\u09F3${Number(amount).toLocaleString('en-US')}`;
+}
+
+/**
+ * The gateway page, laid out for a phone first.
+ *
+ * A single column, one card, every row a label and a value with room between
+ * them, and a tap target no smaller than the app's own 48dp buttons. This opens
+ * in the customer's browser on whatever phone they own, so a two-column layout
+ * would be a page that falls apart on the smallest and most common screen.
+ */
+function gatewayPage({
+  title,
+  heading,
+  subheading,
+  amount,
+  rows = [],
+  formAction,
+  payLabel,
+  cancelAction,
+  tone = 'brand',
+}) {
+  const body = `
+      <h1>${heading}</h1>
+      ${subheading ? `<p class="sub">${subheading}</p>` : ''}
+      ${amount === undefined ? '' : `<div class="amount">${taka(amount)}</div>`}
+      ${rows
+        .map(
+          ([label, value]) =>
+            `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`,
+        )
+        .join('')}
+      ${
+        formAction
+          ? `<form method="POST" action="${formAction}"><button class="pay" type="submit">${payLabel}</button></form>`
+          : ''
+      }
+      ${
+        cancelAction
+          ? `<form method="POST" action="${cancelAction}"><button class="cancel" type="submit">Cancel</button></form>`
+          : ''
+      }
+      <p class="note">This is the local mock's stand-in for a gateway page. No money moves. The payment
+      is only marked paid after this server records the callback.</p>`;
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>${title}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #f6f8f8;
+        color: #131918;
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;      /* one column, always: this is a phone page */
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+      }
+      .card {
+        width: 100%;
+        max-width: 400px;
+        background: #fff;
+        border: 1px solid #e4edea;
+        border-radius: 20px;
+        padding: 24px 20px;
+        box-shadow: 0 8px 24px rgba(16, 20, 20, 0.08);
+      }
+      h1 { font-size: 20px; line-height: 1.3; margin: 0; letter-spacing: -0.2px; }
+      .sub { margin: 4px 0 0; color: #6f7977; font-size: 14px; }
+      .amount {
+        font-size: 36px; font-weight: 800; letter-spacing: -1px;
+        margin: 16px 0 4px; word-break: break-all;
+      }
+      .row {
+        display: flex; flex-wrap: wrap;
+        justify-content: space-between; align-items: baseline;
+        gap: 4px 16px;                     /* the value wraps below the label, not into it */
+        padding: 10px 0;
+        border-top: 1px solid #eef3f1;
+        font-size: 14px;
+      }
+      .label { color: #3f4947; }
+      .value { font-weight: 600; text-align: right; word-break: break-all; min-width: 0; }
+      form { margin: 0; }
+      button {
+        display: block; width: 100%;
+        min-height: 52px;                    /* the same target the app uses */
+        margin-top: 12px; padding: 14px 16px;
+        font-size: 16px; font-weight: 700;
+        border-radius: 999px; border: 0; cursor: pointer;
+      }
+      .pay { background: #0b6b5b; color: #fff; }
+      .cancel { background: transparent; color: #3f4947; }
+      .note { margin: 20px 0 0; font-size: 12px; line-height: 1.45; color: #6f7977; }
+      .success .card { border-color: #cdefe7; }
+      @media (min-width: 520px) { .amount { font-size: 40px; } }
+    </style>
+  </head>
+  <body class="${tone}">
+    <main class="card">${body}
+    </main>
+  </body>
+</html>`;
+}
+
 /** An HTML response, for the simulated gateway page. */
 function html(response, status, body) {
   response.writeHead(status, {
@@ -1293,96 +1408,62 @@ const server = createServer(async (request, response) => {
 // check a real integration performs.
 // ---------------------------------------------------------------------------
 
-if (/^\/gateway\/[^/]+$/.test(url.pathname) && request.method === 'GET') {
-  const order = gatewayOrders.get(url.pathname.split('/')[2]);
-  if (!order) return error(response, 404, 'not_found', 'That order has expired.');
+  if (/^\/gateway\/[^/]+$/.test(url.pathname) && request.method === 'GET') {
+    const order = gatewayOrders.get(decodeURIComponent(url.pathname.split('/')[2]));
+    if (!order) return error(response, 404, 'not_found', 'That order has expired.');
 
-  return html(
-    response,
-    200,
-    `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${order.gateway.toUpperCase()} — simulated payment</title>
-    <style>
-      body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #f6f8f8; color: #131918;
-             display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 24px; }
-      .card { background: #fff; border: 1px solid #e4edea; border-radius: 20px; padding: 24px;
-              max-width: 380px; width: 100%; box-shadow: 0 8px 24px rgba(16,20,20,0.08); }
-      h1 { font-size: 18px; margin: 0 0 4px; }
-      .amount { font-size: 34px; font-weight: 800; letter-spacing: -1px; margin: 12px 0 20px; }
-      .row { display: flex; justify-content: space-between; padding: 8px 0; border-top: 1px solid #eef3f1;
-             color: #3f4947; font-size: 14px; }
-      button { display: block; width: 100%; margin-top: 12px; padding: 15px; font-size: 16px; font-weight: 700;
-               border-radius: 999px; border: 0; cursor: pointer; }
-      .pay { background: #0b6b5b; color: #fff; }
-      .cancel { background: transparent; color: #3f4947; }
-      .note { font-size: 12px; color: #6f7977; margin-top: 16px; }
-    </style>
-  </head>
-  <body>
-    <form class="card" method="POST" action="/gateway/${order.orderId}/confirm">
-      <h1>${order.gateway.toUpperCase()} (simulated)</h1>
-      <div class="amount">৳${order.amount.toLocaleString('en-US')}</div>
-      <div class="row"><span>Merchant</span><span>Srabon Telecom</span></div>
-      <div class="row"><span>Order</span><span>${order.orderId}</span></div>
-      <div class="row"><span>Reference</span><span>${order.paymentId}</span></div>
-      <button class="pay" type="submit">Pay ৳${order.amount.toLocaleString('en-US')}</button>
-    </form>
-    <form class="card" style="border:0; box-shadow:none; background:transparent" method="POST" action="/gateway/${order.orderId}/cancel">
-      <button class="cancel" type="submit">Cancel</button>
-    </form>
-    <p class="note" style="text-align:center; width:100%">
-      This is the local mock's stand-in for a gateway page. No money moves. The
-      payment is only marked paid after this server records the callback.
-    </p>
-  </body>
-</html>`,
-  );
-}
+    return html(
+      response,
+      200,
+      gatewayPage({
+        title: `${order.gateway.toUpperCase()} — simulated payment`,
+        heading: `${order.gateway.toUpperCase()}`,
+        subheading: 'Simulated payment page',
+        amount: order.amount,
+        rows: [
+          ['Merchant', 'Srabon Telecom'],
+          ['Order', order.orderId],
+          ['Reference', order.paymentId],
+        ],
+        formAction: `/gateway/${order.orderId}/confirm`,
+        payLabel: `Pay ${taka(order.amount)}`,
+        cancelAction: `/gateway/${order.orderId}/cancel`,
+      }),
+    );
+  }
 
-if (/^\/gateway\/[^/]+\/confirm$/.test(url.pathname) && request.method === 'POST') {
-  const order = gatewayOrders.get(url.pathname.split('/')[2]);
-  if (!order) return error(response, 404, 'not_found', 'That order has expired.');
-  settlePayment(order, 'SUCCESS');
-  return html(
-    response,
-    200,
-    `<!doctype html><html lang="en"><head><meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Payment complete</title>
-    <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f8f8;color:#131918;
-      display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;text-align:center}
-      .card{background:#fff;border:1px solid #e4edea;border-radius:20px;padding:28px;max-width:360px}
-      h1{font-size:20px;margin:0 0 8px} p{color:#3f4947;margin:0 0 20px}</style></head>
-    <body><div class="card"><h1>Payment received</h1>
-    <p>৳${order.amount.toLocaleString('en-US')} has been recorded against ${order.paymentId}.</p>
-    <p>You can close this window and return to the app.</p></div></body></html>`,
-  );
-}
+  if (/^\/gateway\/[^/]+\/confirm$/.test(url.pathname) && request.method === 'POST') {
+    const order = gatewayOrders.get(decodeURIComponent(url.pathname.split('/')[2]));
+    if (!order) return error(response, 404, 'not_found', 'That order has expired.');
+    settlePayment(order, 'SUCCESS');
+    return html(
+      response,
+      200,
+      gatewayPage({
+        title: 'Payment complete',
+        heading: 'Payment received',
+        subheading: `${taka(order.amount)} recorded against ${order.paymentId}`,
+        tone: 'success',
+      }),
+    );
+  }
 
-if (/^\/gateway\/[^/]+\/cancel$/.test(url.pathname) && request.method === 'POST') {
-  const order = gatewayOrders.get(url.pathname.split('/')[2]);
-  if (!order) return error(response, 404, 'not_found', 'That order has expired.');
-  // Cancelling at the gateway is not a declined payment: the order simply never
-  // completes, and the status endpoint keeps reporting PENDING.
-  return html(
-    response,
-    200,
-    `<!doctype html><html lang="en"><head><meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cancelled</title>
-    <style>body{font:16px/1.5 system-ui,sans-serif;margin:0;background:#f6f8f8;color:#131918;
-      display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px;text-align:center}
-      .card{background:#fff;border:1px solid #e4edea;border-radius:20px;padding:28px;max-width:360px}
-      h1{font-size:20px;margin:0 0 8px} p{color:#3f4947;margin:0 0 20px}</style></head>
-    <body><div class="card"><h1>Cancelled</h1>
-    <p>No money was taken. ${order.paymentId} is still pending and can be paid again.</p></div></body></html>`,
-  );
-}
-
+  if (/^\/gateway\/[^/]+\/cancel$/.test(url.pathname) && request.method === 'POST') {
+    const order = gatewayOrders.get(decodeURIComponent(url.pathname.split('/')[2]));
+    if (!order) return error(response, 404, 'not_found', 'That order has expired.');
+    // Cancelling at the gateway is not a declined payment: the order simply never
+    // completes, and the status endpoint keeps reporting PENDING.
+    return html(
+      response,
+      200,
+      gatewayPage({
+        title: 'Cancelled',
+        heading: 'Cancelled',
+        subheading: `No money was taken. ${order.paymentId} is still pending and can be paid again.`,
+        tone: 'neutral',
+      }),
+    );
+  }
 
   if (request.method === 'OPTIONS') {
     return json(response, 204, {});

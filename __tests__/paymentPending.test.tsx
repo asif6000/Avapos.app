@@ -3,7 +3,6 @@ import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import PendingScreen from '../app/payments/pending';
-import { usePayment } from '@/hooks/queries';
 import { usePaymentFlowStore } from '@/store/paymentFlowStore';
 import { lightTheme } from '@/theme/theme';
 
