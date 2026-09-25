@@ -1,0 +1,12 @@
+{
+  "name": "srabon-device-management",
+  "version": "1.0.0",
+  "description": "Read-only Android device-management status reporting for the Srabon Telecom customer app.",
+  "main": "index.js",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}
