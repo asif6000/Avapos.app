@@ -195,6 +195,27 @@ describe('passwordless auth store', () => {
     expect(await storage.get()).toBeNull();
   });
 
+  it('does not mistake a server error for being offline', async () => {
+    // A 404/500 means we could not confirm who this is. Treating it as "offline"
+    // would mark the customer authenticated with a null profile, and the next
+    // authenticated call would then fail locally as "your session has expired".
+    customerMock.profile.mockRejectedValue(
+      new ApiError({ kind: 'not_found', message: 'The requested information was not found.' }),
+    );
+    const { store, storage } = makeStore();
+    await storage.set({
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+      expiresAt: Date.now() + 3_600_000,
+    });
+
+    await store.getState().bootstrap();
+
+    expect(store.getState().status).toBe('unauthenticated');
+    expect(store.getState().profile).toBeNull();
+    expect(await storage.get()).toBeNull();
+  });
+
   it('destroys local tokens on sign out', async () => {
     const { store, storage } = makeStore();
     authMock.verifyOtp.mockResolvedValue(session);

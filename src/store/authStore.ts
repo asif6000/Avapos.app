@@ -93,8 +93,23 @@ export function createAuthStore(manager: SessionManager = sessionManager) {
           set({ status: 'unauthenticated', profile: null });
           return;
         }
-        // Offline. Keep the tokens so cached data can render. Authorization is
-        // never granted locally.
+        // Only a network-class failure is "offline": keep the tokens so cached
+        // data can render. Authorization is never granted locally.
+        //
+        // Anything else — 404, 500, malformed payload — means we could not
+        // confirm who this is. Treating those as offline would mark the
+        // customer authenticated with no profile, and the next authenticated
+        // call would then fail locally with "your session has expired", which
+        // is a worse lie than an honest error.
+        const offline =
+          error instanceof ApiError &&
+          (error.kind === 'network' || error.kind === 'timeout' || error.kind === 'offline');
+
+        if (!offline) {
+          await manager.clear();
+          set({ status: 'unauthenticated', profile: null, error: messageOf(error) });
+          return;
+        }
         set({ status: 'authenticated', profile: null, error: messageOf(error) });
       }
     },

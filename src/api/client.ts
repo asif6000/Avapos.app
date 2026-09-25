@@ -280,7 +280,12 @@ function toApiError(error: unknown): ApiError {
 
 function buildHttpError(status: number, payload: unknown): ApiError {
   const kind = statusToKind(status);
-  const message = extractSafeMessage(payload, defaultMessageFor(kind));
+  // The backend's own wording is only shown for validation failures, where it
+  // is written for humans. A 404 that says "Not Found" is the server's problem,
+  // not something to show a customer.
+  const fallback = defaultMessageFor(kind);
+  const message =
+    kind === 'validation' ? extractSafeMessage(payload, fallback) : fallback;
   const code =
     payload && typeof payload === 'object' && typeof (payload as { code?: unknown }).code === 'string'
       ? ((payload as { code: string }).code)

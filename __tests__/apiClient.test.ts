@@ -1,5 +1,5 @@
 import { ApiClient } from '@/api/client';
-import { ApiError, isSafeDetail, statusToKind } from '@/api/errors';
+import { ApiError, isCustomerFacingDetail, isSafeDetail, statusToKind } from '@/api/errors';
 import { createMemoryTokenStorage } from '@/auth/tokenStorage';
 
 const BASE = 'https://api.test.local/api';
@@ -146,6 +146,49 @@ describe('ApiClient', () => {
     expect((error as ApiError).message).not.toMatch(/select \*|ERESOLVE|\/api\//);
   });
 
+  it('never shows the server HTTP vocabulary to a customer', async () => {
+    // A 404 that says "Not Found" is the server's wording, not ours.
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse({ status: 'error', message: 'Not Found' }, 404),
+    );
+    const client = makeClient(fetchImpl, createMemoryTokenStorage(validTokens));
+
+    const error = (await client
+      .get('/installments')
+      .catch((e: unknown) => e)) as ApiError;
+
+    expect(error.kind).toBe('not_found');
+    expect(error.message).not.toMatch(/^not found$/i);
+    expect(error.message).toBe('The requested information was not found.');
+  });
+
+  it('replaces generic backend text for other statuses too', async () => {
+    for (const [status, text, kind] of [
+      [500, 'Internal Server Error', 'server'],
+      [403, 'Forbidden', 'forbidden'],
+      [409, 'Conflict', 'conflict'],
+    ] as const) {
+      const fetchImpl = jest.fn(async () => jsonResponse({ message: text }, status));
+      const client = makeClient(fetchImpl, createMemoryTokenStorage(validTokens));
+      const error = (await client.get('/devices/me').catch((e: unknown) => e)) as ApiError;
+      expect(error.kind).toBe(kind);
+      expect(error.message).not.toBe(text);
+    }
+  });
+
+  it('still shows a human-written validation message', async () => {
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse({ message: 'That code has expired. Request a new one.' }, 422),
+    );
+    const client = makeClient(fetchImpl, createMemoryTokenStorage(validTokens));
+
+    const error = (await client
+      .get('/installments')
+      .catch((e: unknown) => e)) as ApiError;
+
+    expect(error.message).toBe('That code has expired. Request a new one.');
+  });
+
   it('normalizes HTTP status codes to customer-safe error kinds', () => {
     expect(statusToKind(400)).toBe('validation');
     expect(statusToKind(401)).toBe('unauthorized');
@@ -163,5 +206,11 @@ describe('ApiClient', () => {
     expect(isSafeDetail('SQLSTATE[42P01]: relation missing')).toBe(false);
     expect(isSafeDetail('at Object.<anonymous> (/src/api/x.ts:1:1)')).toBe(false);
     expect(isSafeDetail('api_key=abcdef')).toBe(false);
+  });
+
+  it('rejects generic HTTP vocabulary even when it looks harmless', () => {
+    expect(isSafeDetail('Not Found')).toBe(true);
+    expect(isCustomerFacingDetail('Not Found')).toBe(false);
+    expect(isCustomerFacingDetail('Your payment is overdue.')).toBe(true);
   });
 });

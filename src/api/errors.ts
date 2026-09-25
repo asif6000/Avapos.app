@@ -86,20 +86,35 @@ const SAFE_DETAIL_KEYS = new Set([
   'title',
 ]);
 
+const GENERIC_BACKEND_PHRASES =
+  /^(not\s*found|forbidden|unauthorized|error|internal server error|bad request|conflict|unprocessable|method not allowed|gone|todo|undefined|null)([\s.!].*)?$/i;
+
 /**
- * Pulls a customer-safe message out of a backend payload. Any field that looks
- * like a database error, stack trace, path, or secret is discarded rather than
- * displayed.
+ * Decides whether a backend message is safe *and* useful to show a customer.
+ *
+ * A short, pattern-free string is not enough. A server that answers 404 with
+ * `{"message":"Not Found"}` is leaking its own vocabulary, and the customer's
+ * reaction is "found what?". So the backend wording is only trusted where it is
+ * contractually written for humans; otherwise we use our own copy.
+ */
+export function isCustomerFacingDetail(value: string): boolean {
+  return isSafeDetail(value) && !GENERIC_BACKEND_PHRASES.test(value);
+}
+
+/**
+ * Pulls a customer-safe message out of a backend payload. Anything that looks
+ * like a database error, stack trace, path or secret is discarded, and so is
+ * generic HTTP vocabulary.
  */
 export function extractSafeMessage(payload: unknown, fallback: string): string {
   if (typeof payload === 'string') {
-    return isSafeDetail(payload) ? payload : fallback;
+    return isCustomerFacingDetail(payload) ? payload : fallback;
   }
   if (payload && typeof payload === 'object') {
     const record = payload as Record<string, unknown>;
     for (const key of SAFE_DETAIL_KEYS) {
       const value = record[key];
-      if (typeof value === 'string' && isSafeDetail(value)) {
+      if (typeof value === 'string' && isCustomerFacingDetail(value)) {
         return value;
       }
     }
