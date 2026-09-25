@@ -84,7 +84,23 @@ Rules that matter for security:
 
 Same body and response as `request-code`, but subject to the same rate limit.
 
-### 4. `PATCH /customer/profile` — auth
+### 4. `POST /customer/auth/refresh` — no bearer, body carries the refresh token
+
+The app calls this on its own when the access token is near expiry, so it must
+work **without** an `Authorization` header.
+
+```jsonc
+// request
+{ "refreshToken": "…" }
+
+// 200
+{ "accessToken": "…", "refreshToken": "…", "expiresIn": 3600 }
+```
+
+**Rotate on every use**: revoke the presented token and issue a new one, so a
+captured refresh token works at most once. Unknown, revoked or expired → `401`.
+
+### 5. `PATCH /customer/profile` — auth
 
 ```jsonc
 // request
@@ -164,8 +180,6 @@ success page.
 Everything marked `[todo]` in `src/api/endpoints.ts`:
 
 ```
-GET    /customer/profile
-PATCH  /customer/profile
 GET    /customer/dashboard
 GET    /customer/settings
 PATCH  /customer/settings
@@ -186,6 +200,14 @@ POST   /customer/notifications/devices
 GET    /customer/support/tickets
 POST   /customer/support/tickets
 GET    /customer/support/tickets/{id}
+```
+
+Provided by `backend/` in this repo, pending your schema check:
+
+```
+GET    /customer/profile
+PATCH  /customer/profile
+POST   /customer/logout
 ```
 
 Paginated endpoints return:
