@@ -7,7 +7,7 @@ type Localized<T> = {
 /** Bengali translations. Keys mirror `en` exactly. */
 export const bn: Localized<TranslationSchema> = {
   common: {
-    appName: 'শ্রবণ টেলিকম',
+    appName: 'কাস্টমার',
     continue: 'পরবর্তী',
     cancel: 'বাতিল',
     close: 'বন্ধ',

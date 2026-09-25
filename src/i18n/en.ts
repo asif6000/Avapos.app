@@ -1,6 +1,6 @@
 export const en = {
   common: {
-    appName: 'Srabon Telecom',
+    appName: 'Customer',
     continue: 'Continue',
     cancel: 'Cancel',
     close: 'Close',

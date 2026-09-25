@@ -14,7 +14,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
-    name: 'Srabon Telecom',
+    name: 'Customer',
     slug: 'srabon-telecom-customer',
     scheme: 'srabontelecom',
     version: '1.0.0',

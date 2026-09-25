@@ -170,7 +170,7 @@ describe('Dashboard screen', () => {
 
     const view = await renderScreen();
 
-    await waitFor(() => expect(view.getByText('Srabon Telecom')).toBeTruthy());
+    await waitFor(() => expect(view.getByText('Customer')).toBeTruthy());
   });
   it('offers a way out when the screen fails, and keeps the header action', async () => {
     // A customer stuck on a failed screen used to have no way to sign out: the
