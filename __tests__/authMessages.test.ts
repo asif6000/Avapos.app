@@ -130,7 +130,7 @@ describe('a refused sign-in', () => {
 });
 
 describe('a refused sign-up', () => {
-  it('points at the mailer when the rate limit blocks account creation', async () => {
+  it('names the mailer, not the customer, when the rate limit blocks account creation', async () => {
     mockSignUp.mockResolvedValue({
       data: { user: null, session: null },
       error: { message: 'email rate limit exceeded', status: 429, code: 'over_email' },
@@ -138,7 +138,11 @@ describe('a refused sign-up', () => {
 
     const result = await register(ADDRESS, PASSWORD);
 
-    expect(result.ok === false && result.message).toMatch(/wait a few minutes/i);
+    // "Too many attempts" is wrong here: nobody at the till is being rate
+    // limited, the project's own mailer is. Telling the customer they did
+    // something wrong is how a support call starts.
+    expect(result.ok === false && result.message).toMatch(/confirmation email/i);
+    expect(result.ok === false && result.message).not.toMatch(/too many attempts/i);
     const logged = warn.mock.calls.flat().join(' ');
     expect(logged).toMatch(/mailer rate limit/);
     expect(logged).not.toContain(PASSWORD);

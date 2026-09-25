@@ -128,6 +128,20 @@ function classify(error: AuthFailure | null): string {
   return 'We could not complete that. Please try again.';
 }
 
+/**
+ * A rate limit on the *mailer* is not a customer doing too much. "Too many
+ * attempts" blames them for a project setting nobody can fix from the app, so
+ * the sign-up path names the real thing instead; everything else is the same
+ * set of answers as sign-in.
+ */
+function classifySignUp(error: AuthFailure | null): string {
+  const detail = `${error?.message ?? ''} ${error?.code ?? ''}`.toLowerCase();
+  if (detail.includes('over_email') || detail.includes('rate limit')) {
+    return 'We could not send the confirmation email just now. Please try again in a little while.';
+  }
+  return classify(error);
+}
+
 export async function signIn(email: string, password: string): Promise<AuthResult<Identity>> {
   if (!isSupabaseAuthReady()) {
     return { ok: false, message: 'Sign-in is not available in this build.' };
@@ -218,7 +232,7 @@ export async function signUp(email: string, password: string): Promise<AuthResul
         )} — run \`npm run check:signup\``,
       );
     }
-    return { ok: false, message: classify(error) };
+    return { ok: false, message: classifySignUp(error) };
   }
 
   return {
