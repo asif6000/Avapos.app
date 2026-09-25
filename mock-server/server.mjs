@@ -211,6 +211,14 @@ const notifications = [
   },
 ];
 
+// The server's own record of the device-management agreement, per customer.
+// Seeded so the enrollment screen has something to show before the customer
+// accepts anything.
+const agreements = new Map();
+
+/** Mutable per-customer app settings, as the settings screen writes them. */
+const appSettings = new Map();
+
 const supportTickets = [
   {
     id: 'TICK-4029',
@@ -712,8 +720,113 @@ async function handleCustomer(request, response, url) {
       managementStatus: device.management_status,
       lastSyncedAt: device.last_sync_time,
       serverTime: now,
-      outstandingAmount: 0,
-      dueDate: null,
+      outstandingAmount: outstandingFor(customer),
+      dueDate: nextDueFor(customer),
+      restrictionReason: null,
+      unlockAuthorizedAt: null,
+    });
+  }
+
+  if (path === '/profile' && method === 'PATCH') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    // The only thing a customer may change about themselves: a name and a
+    // language. Enrollment, device state and money are not in this body.
+    if (typeof body.fullName === 'string' && body.fullName.trim()) {
+      customer.full_name = body.fullName.trim();
+    }
+    if (typeof body.language === 'string') customer.language = body.language;
+    return json(response, 200, presentCustomer(customer));
+  }
+
+  if (path === '/settings' && method === 'GET') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    return json(response, 200, settingsFor(customer));
+  }
+
+  if (path === '/settings' && method === 'PATCH') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const current = settingsFor(customer);
+    const next = {
+      ...current,
+      ...(typeof body.pushNotifications === 'boolean' ? { pushNotifications: body.pushNotifications } : {}),
+      ...(typeof body.overdueReminders === 'boolean' ? { overdueReminders: body.overdueReminders } : {}),
+    };
+    appSettings.set(customer.id, next);
+    return json(response, 200, next);
+  }
+
+  // ---- enrollment: consent first, then the attempt ---------------------
+  if (path === '/agreements/device-management/current' && method === 'GET') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    return json(response, 200, presentAgreement(agreements.get(customer.id)));
+  }
+
+  if (path === '/agreements/device-management/accept' && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    // The signed agreement is recorded *before* any enrollment is attempted.
+    if (!body.agreementVersion || !body.signatureName) {
+      return error(response, 422, 'validation', 'The agreement version and a signature are required.');
+    }
+    const record = {
+      agreement_version: body.agreementVersion,
+      signature_name: String(body.signatureName).trim(),
+      accepted: body.accepted !== false,
+      accepted_at: body.acceptedAt ?? now,
+      customer_id: customer.id,
+    };
+    agreements.set(customer.id, record);
+    return json(response, 200, presentAgreement(record));
+  }
+
+  if (path === '/devices/me/enroll' && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const device = devices.find((d) => d.customer_key === customer.id);
+    if (!device) return error(response, 404, 'not_found', 'Not Found');
+
+    // An enrollment attempt is not an enrollment. On a retail phone Android
+    // grants nothing, so the binding stays *pending* until Android reports a
+    // device owner — which is exactly what the app shows.
+    const agreement = agreements.get(customer.id);
+    device.enrollment_status = 'PENDING';
+    device.management_status = 'PENDING';
+    device.last_sync_time = now;
+    return json(response, 200, {
+      id: device.id,
+      name: device.device_name,
+      manufacturer: device.manufacturer,
+      model: device.model,
+      androidVersion: device.android_version,
+      enrollmentStatus: device.enrollment_status,
+      managementStatus: device.management_status,
+      deviceState: device.state,
+      lastSyncedAt: device.last_sync_time,
+      contractId: device.contract_id,
+      agreementVersion: agreement?.agreement_version ?? '1.0.0',
+      agreementAcceptedAt: agreement?.accepted_at ?? null,
+      enterpriseManaged: false,
+    });
+  }
+
+  if (path === '/devices/me/sync' && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const device = devices.find((d) => d.customer_key === customer.id);
+    if (!device) return error(response, 404, 'not_found', 'Not Found');
+    device.last_sync_time = now;
+    return json(response, 200, {
+      deviceState: device.state,
+      enrollmentStatus: device.enrollment_status,
+      managementStatus: device.management_status,
+      lastSyncedAt: device.last_sync_time,
+      serverTime: now,
+      outstandingAmount: outstandingFor(customer),
+      dueDate: nextDueFor(customer),
       restrictionReason: null,
       unlockAuthorizedAt: null,
     });
@@ -754,6 +867,21 @@ async function handleCustomer(request, response, url) {
     });
   }
 
+  if (/^\/installments\/[^/]+$/.test(path) && method === 'GET') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const installment = installments.find(
+      (i) => i.id === decodeURIComponent(path.split('/')[2]) && i.customer_key === customer.id,
+    );
+    if (!installment) return error(response, 404, 'not_found', 'Not Found');
+    return json(response, 200, {
+      ...presentInstallment(installment),
+      payments: payments
+        .filter((p) => p.customer_key === customer.id && p.installment_number === installment.number)
+        .map((p) => presentPayment(p)),
+    });
+  }
+
   if (path === '/notifications' && method === 'GET') {
     const customer = requireCustomer(request, response);
     if (!customer) return undefined;
@@ -780,19 +908,7 @@ async function handleCustomer(request, response, url) {
   if (path === '/support/tickets' && method === 'GET') {
     const customer = requireCustomer(request, response);
     if (!customer) return undefined;
-    const items = supportTickets
-      .filter((t) => t.customer_key === customer.id)
-      .map((t) => ({
-        id: t.id,
-        subject: t.subject,
-        message: t.message,
-        category: t.category,
-        status: t.status,
-        createdAt: t.created_at,
-        updatedAt: t.created_at,
-        response: t.admin_response,
-        respondedAt: t.admin_response ? t.created_at : null,
-      }));
+    const items = supportTickets.filter((t) => t.customer_key === customer.id).map(presentTicket);
     return json(response, 200, {
       items,
       page: 1,
@@ -802,21 +918,76 @@ async function handleCustomer(request, response, url) {
     });
   }
 
+  if (path === '/notifications/read-all' && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const marked = notifications.filter((n) => n.customer_key === customer.id && !n.is_read);
+    marked.forEach((n) => {
+      n.is_read = true;
+    });
+    return json(response, 200, { count: marked.length });
+  }
+
+  if (/^\/notifications\/[^/]+\/read$/.test(path) && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const id = decodeURIComponent(path.split('/')[2]);
+    const item = notifications.find((n) => n.id === id && n.customer_key === customer.id);
+    if (!item) return error(response, 404, 'not_found', 'Not Found');
+    item.is_read = true;
+    return json(response, 200, { id: item.id });
+  }
+
+  if (path === '/notifications/devices' && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    // A push token is a delivery address, not an identity: it grants nothing.
+    return json(response, 200, { registered: true });
+  }
+
+  if (/^\/support\/tickets\/[^/]+$/.test(path) && method === 'GET') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const ticket = supportTickets.find(
+      (t) => t.id === decodeURIComponent(path.split('/')[3]) && t.customer_key === customer.id,
+    );
+    if (!ticket) return error(response, 404, 'not_found', 'Not Found');
+    return json(response, 200, presentTicket(ticket));
+  }
+
+  if (path === '/support/tickets' && method === 'POST') {
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    if (!body.subject || !body.message) {
+      return error(response, 422, 'validation', 'A subject and a message are required.');
+    }
+    const ticket = {
+      id: `TICK-MOCK-${randomUUID().slice(0, 4).toUpperCase()}`,
+      customer_key: customer.id,
+      subject: String(body.subject).slice(0, 140),
+      message: String(body.message).slice(0, 4000),
+      category: body.category ?? 'GENERAL',
+      status: 'OPEN',
+      admin_response: null,
+      created_at: now,
+    };
+    supportTickets.unshift(ticket);
+    return json(response, 200, presentTicket(ticket));
+  }
+
+  if (path === '/logout' && method === 'POST') {
+    const claims = actorFor(request);
+    if (!claims) return error(response, 401, 'unauthorized', 'Unauthorized request');
+    return json(response, 200, { revoked: true });
+  }
+
   if (path === '/payments' && method === 'GET') {
     const claims = actorFor(request);
     if (!claims) return error(response, 401, 'unauthorized', 'Unauthorized request');
     const customer = customerForAuthUser(claims.sub);
     if (!customer) return error(response, 401, 'unauthorized', 'Unauthorized request');
 
-    const items = payments
-      .filter((p) => p.customer_key === customer.id)
-      .map(({ customer_key, ...rest }) => ({
-        id: rest.transaction_id,
-        currency: 'BDT',
-        paidAt: rest.status === 'SUCCESS' ? rest.date : null,
-        gateway: rest.payment_method,
-        ...rest,
-      }));
+    const items = payments.filter((p) => p.customer_key === customer.id).map(presentPayment);
 
     return json(response, 200, {
       items,
@@ -920,6 +1091,85 @@ function requireCustomer(request, response) {
     return null;
   }
   return customer;
+}
+
+function presentCustomer(customer) {
+  return {
+    id: customer.id,
+    fullName: customer.full_name,
+    email: customer.email,
+    phone: customer.phone_number,
+    language: customer.language,
+    verifiedAt: customer.created_at,
+  };
+}
+
+function presentAgreement(record) {
+  if (!record) {
+    return {
+      agreementVersion: null,
+      accepted: false,
+      acceptedAt: null,
+      signatureName: null,
+    };
+  }
+  return {
+    agreementVersion: record.agreement_version,
+    accepted: record.accepted,
+    acceptedAt: record.accepted_at,
+    signatureName: record.signature_name,
+  };
+}
+
+function presentTicket(ticket) {
+  return {
+    id: ticket.id,
+    subject: ticket.subject,
+    message: ticket.message,
+    category: ticket.category,
+    status: ticket.status,
+    createdAt: ticket.created_at,
+    updatedAt: ticket.created_at,
+    response: ticket.admin_response,
+    respondedAt: ticket.admin_response ? ticket.created_at : null,
+  };
+}
+
+function presentPayment(row) {
+  const { customer_key, ...rest } = row;
+  return {
+    id: rest.transaction_id,
+    currency: 'BDT',
+    paidAt: rest.status === 'SUCCESS' ? rest.date : null,
+    gateway: rest.payment_method,
+    ...rest,
+  };
+}
+
+function planFor(customer) {
+  return installments.filter((i) => i.customer_key === customer.id);
+}
+
+function outstandingFor(customer) {
+  return planFor(customer).reduce((sum, i) => sum + Math.max(0, i.amount - i.paid_amount), 0);
+}
+
+function nextDueFor(customer) {
+  return planFor(customer).find((i) => i.status !== 'PAID')?.due_date ?? null;
+}
+
+function settingsFor(customer) {
+  const stored = appSettings.get(customer.id);
+  if (stored) return stored;
+  const nextDue = nextDueFor(customer);
+  return {
+    language: customer.language ?? 'en',
+    pushNotifications: true,
+    overdueReminders: true,
+    nextDueDate: nextDue,
+    supportPhone: '09612-000000',
+    agreementVersion: agreements.get(customer.id)?.agreement_version ?? '1.0.0',
+  };
 }
 
 function presentInstallment(row) {
