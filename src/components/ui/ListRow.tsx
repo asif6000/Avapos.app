@@ -1,5 +1,5 @@
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { Text, TouchableRipple, useTheme } from 'react-native-paper';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
 
 import { AppIcon } from '@/components/AppIcon';
 import { radius, spacing, useLayout } from '@/theme/layout';
@@ -81,16 +81,15 @@ export function ListRow({
   if (!onPress) return body;
 
   return (
-    <TouchableRipple
+    <Pressable
       onPress={onPress}
-      borderless
-      rippleColor={`${theme.colors.primary}14`}
+      android_ripple={{ color: `${theme.colors.primary}14` }}
       accessibilityRole="button"
       accessibilityLabel={[title, subtitle, trailing].filter(Boolean).join(', ')}
       style={styles.pressable}
     >
       {body}
-    </TouchableRipple>
+    </Pressable>
   );
 }
 

@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { render, userEvent } from '@testing-library/react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -90,7 +90,7 @@ describe('ListRow', () => {
 
     const row = view.getByLabelText('Installment 2, 10 Sep 2026');
     expect(row.props.accessibilityRole).toBe('button');
-    await row.props.onClick?.();
+    await userEvent.press(row);
     expect(onPress).toHaveBeenCalled();
   });
 });

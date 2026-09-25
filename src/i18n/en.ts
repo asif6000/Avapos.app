@@ -110,6 +110,35 @@ export const en = {
     termsTitle: 'Terms and conditions',
     privacyTitle: 'Privacy policy',
     agreementTitle: 'Device management agreement',
+    chainTitle: 'How this works when you buy the phone',
+    chainBody:
+      '1. You install this app. 2. You read the agreement and accept it by typing your name. 3. The shop provisions the phone as an Android Enterprise device owner — that step is done by the store, not by this app. 4. Android shows you the authorisation prompt for device management. 5. Our server binds the phone to your contract.',
+    provisionTitle: 'Android asks before anything is managed',
+    provisionBody:
+      'Nothing is granted silently. Android itself shows the authorisation prompt, naming the store or company that will manage the phone, and nothing is enrolled until you approve it. This app cannot give itself permissions or enrol itself — Android does not allow that, and we do not attempt it.',
+    uninstallTitle: 'Can you uninstall this app?',
+    uninstallBody:
+      'On a phone that Android has provisioned as a device owner (fully managed), Android itself blocks uninstalling this app. On a normal phone bought from a shop you can uninstall it whenever you like. Uninstalling does not cancel your financing agreement: the installments you owe remain payable, and you can install the app again at any time.',
+    limitsTitle: 'What no customer app can do',
+    limitsBody:
+      'This app cannot stop a factory reset, a bootloader unlock or a re-flash of the phone, and we do not try to. Those are controlled by the phone manufacturer and by Android, not by an app. What this app does is record your agreement, show you the status our server reports, and act only on a state our server has authorised.',
+    neverHiddenTitle: 'This app is never hidden',
+    neverHiddenBody:
+      'There is no stealth mode here. The app stays visible in your app list with its name and icon, and it does not disguise what it does. It asks for no accessibility, notification-listener or background permissions beyond what Android Enterprise device management itself requires.',
+    resultTitle: 'Enrollment result',
+    resultAgreement: 'Agreement recorded',
+    resultAndroid: 'Android enrollment',
+    resultBind: 'Binding to your contract',
+    androidEnrolled: 'Enrolled. Android reports this app as the device owner of this phone.',
+    androidPending: 'Waiting for Android. The phone has to be provisioned as a device owner first.',
+    androidNotEnrolled:
+      'Not enrolled. This phone is not under enterprise device management yet. The shop provisions it as an Android Enterprise device owner; this app cannot do that by itself.',
+    androidUnsupported:
+      'Not available. This build or this phone cannot report an enrollment status. Ask the shop to provision it as an Android Enterprise device owner.',
+    androidFailed: 'Enrollment failed. Try again, or ask the shop for help.',
+    bindConfirmed: 'Confirmed by our server.',
+    bindPending: 'Waiting for our server to confirm the binding. This screen updates when it does.',
+    checkAgain: 'Check again',
     accept: 'I have read and accept the device management agreement',
     acceptName: 'Type your full name to accept',
     acceptCta: 'Accept and continue',

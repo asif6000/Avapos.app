@@ -305,13 +305,42 @@ Expo Go the app degrades gracefully to `UNSUPPORTED`.
 
 ## Enrollment and consent
 
-`app/device/enrollment.tsx` walks through why management is required, what is
-collected, what management can and cannot do, what happens when a payment is
-overdue, and what happens after a verified payment. The customer then ticks an
-explicit consent box and types their full name. The backend records the
-customer, the contract, the agreement version and the timestamp
-(`POST /agreements/device-management/accept`), then enrollment is attempted
-server-side. Nothing is ever enrolled silently.
+The sale happens in this order, and the app mirrors it step for step:
+
+```
+app installed → agreement accepted → store provisions the phone as an
+Android Enterprise device owner → Android's own authorisation prompt →
+backend binds the device to the contract
+```
+
+`app/device/enrollment.tsx` walks the customer through that chain before asking
+for anything: why management is required, what is collected, that the *store*
+provisions the phone and the app cannot enrol itself, what management can and
+cannot do, what happens when a payment is overdue, what happens after a verified
+payment, and — stated plainly, because a financing sale depends on it — what no
+customer app can do:
+
+- uninstall is blocked by Android only on a phone provisioned as a device owner
+  (fully managed); on a normal phone the customer can uninstall it, and doing so
+  does not cancel the agreement
+- nothing here attempts to stop a factory reset, a bootloader unlock or a
+  re-flash: those are the manufacturer's and Android's, not an app's
+- the app is never hidden, never disguised, and takes no accessibility,
+  notification-listener or background permissions beyond what Android
+  Enterprise management itself requires
+
+The customer then ticks an explicit consent box and types their full name. The
+backend records the customer, the contract, the agreement version and the
+timestamp (`POST /agreements/device-management/accept`) **before** any enrollment
+is attempted. Nothing is ever enrolled silently.
+
+After acceptance the screen *reports* the outcome of each step rather than
+asserting it: the agreement version and timestamp, what Android reports
+(`ENROLLED`, `NOT_ENROLLED`, `UNSUPPORTED`, `PENDING`, `ENROLLMENT_FAILED`), and
+whether the server has confirmed the binding. A shop phone that was never
+provisioned must never come back looking enrolled, and an unconfirmed binding is
+reported as waiting. "Check again" re-reads both, for a phone provisioned after
+the sale.
 
 Change the agreement text in `src/content/legal.ts` and bump
 `DEVICE_MANAGEMENT_AGREEMENT_VERSION` in `src/config/agreement.ts`.

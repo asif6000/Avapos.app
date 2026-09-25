@@ -1,5 +1,12 @@
-import { ActivityIndicator, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-import { Text, TouchableRipple, useTheme } from 'react-native-paper';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  View,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
+import { Text, useTheme } from 'react-native-paper';
 
 import { AppIcon } from '@/components/AppIcon';
 import { MIN_TAP_TARGET, radius, spacing } from '@/theme/layout';
@@ -66,16 +73,18 @@ export function AppButton({
         style,
       ]}
     >
-      <TouchableRipple
+      {/* `Pressable` rather than paper's ripple: this button is custom-sized, and
+          a host component keeps the real `onPress` reachable — by assistive
+          technology, and by the tests that press it. */}
+      <Pressable
         onPress={onPress}
         disabled={inert}
-        borderless
-        rippleColor={`${look.foreground}22`}
-        style={styles.ripple}
+        android_ripple={{ color: `${look.foreground}22` }}
         accessibilityRole="button"
         accessibilityState={{ disabled: inert, busy: loading }}
         accessibilityLabel={label}
         testID={testID}
+        style={styles.ripple}
       >
         <View style={styles.content}>
           {loading ? (
@@ -93,7 +102,7 @@ export function AppButton({
             </>
           )}
         </View>
-      </TouchableRipple>
+      </Pressable>
     </View>
   );
 }

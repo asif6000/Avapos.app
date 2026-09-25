@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { Text, TouchableRipple, useTheme } from 'react-native-paper';
+import { Text, useTheme } from 'react-native-paper';
 
 import { useTranslation } from '@/hooks/useTheme';
 import { HIT_SLOP, radius, spacing, useLayout } from '@/theme/layout';
@@ -73,10 +73,9 @@ export function AppHeader({
       </View>
 
       {action ? (
-        <TouchableRipple
+        <Pressable
           onPress={action.onPress}
-          borderless
-          rippleColor={`${theme.colors.primary}1A`}
+          android_ripple={{ color: `${theme.colors.primary}1A`, borderless: true }}
           accessibilityRole="button"
           accessibilityLabel={action.label}
           testID="header-action"
@@ -85,7 +84,7 @@ export function AppHeader({
           <View style={styles.iconButtonInner}>
             <AppIcon name={action.icon} size={20} color={theme.colors.onSurface} />
           </View>
-        </TouchableRipple>
+        </Pressable>
       ) : null}
     </View>
   );
