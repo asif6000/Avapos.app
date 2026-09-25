@@ -1,11 +1,18 @@
-import { useMemo } from 'react';
-
 import { useInstallments as useApiInstallments, useNotifications as useApiNotifications } from './queries';
-import {
-  useSupabaseInstallments,
-  useSupabaseNotifications,
-} from '@/supabase/queries';
+import { useSupabaseNotifications } from '@/supabase/queries';
 import type { AppNotification, Installment } from '@/types/domain';
+
+/**
+ * Data-source preference for screens whose data can come from either place.
+ *
+ * Supabase is preferred when the RLS-verified publishable key is configured,
+ * otherwise the REST API. Both paths are scoped to the signed-in customer, so
+ * this is a latency choice, not an authorization choice.
+ *
+ * The installment *schedule* deliberately stays on the API: the live schema has
+ * no `installments` table, and the contract totals that drive money must come
+ * from the backend regardless. Notifications come from Supabase.
+ */
 
 export interface DataSource<T> {
   data: T;
@@ -16,41 +23,22 @@ export interface DataSource<T> {
   source: 'supabase' | 'api';
 }
 
-/**
- * Installment schedule.
- *
- * Read straight from Supabase when the RLS-verified publishable key is
- * configured, otherwise from the REST API. Both paths are RLS/session scoped to
- * the signed-in customer, so this is a latency choice, not an authorization
- * choice — see `src/supabase/client.ts`.
- *
- * Note the deliberate split: the *schedule* is a read, but the money totals on
- * the contract and anything payment-related still come from the API, which
- * revalidates against the contract before showing a figure.
- */
 export function useInstallmentSource(): DataSource<Installment[]> {
-  const supabase = useSupabaseInstallments();
-  const api = useApiInstallments(supabase.data === undefined);
-
-  const useSupabase = supabase.isSuccess && supabase.data !== undefined;
-
+  const api = useApiInstallments();
   return {
-    data: useSupabase ? supabase.data : (api.data ?? []),
-    isLoading: useSupabase ? false : api.isLoading,
-    error: useSupabase ? null : api.error,
+    data: api.data ?? [],
+    isLoading: api.isLoading,
+    error: api.error,
     refetch: () => {
-      if (useSupabase) void supabase.refetch();
-      else void api.refetch();
+      void api.refetch();
     },
-    source: useSupabase ? 'supabase' : 'api',
+    source: 'api',
   };
 }
 
-/** Notification centre rows, same source preference as the schedule. */
 export function useNotificationSource(): DataSource<AppNotification[]> {
   const supabase = useSupabaseNotifications();
   const api = useApiNotifications(1, supabase.data === undefined);
-
   const useSupabase = supabase.isSuccess && supabase.data !== undefined;
 
   return {
@@ -63,9 +51,4 @@ export function useNotificationSource(): DataSource<AppNotification[]> {
     },
     source: useSupabase ? 'supabase' : 'api',
   };
-}
-
-/** Exposed for screens that want to show where their rows came from. */
-export function useDataSourceLabel(source: DataSource<unknown>['source']): string {
-  return useMemo(() => (source === 'supabase' ? 'Supabase (RLS)' : 'API'), [source]);
 }

@@ -96,14 +96,28 @@ describe('supabase client configuration', () => {
 });
 
 describe('supabase read queries', () => {
-  it('accepts no customer identifier parameter at all', () => {
-    // The ownership filter is the RLS policy, not a query argument, so there is
-    // nothing for a tampered client to change.
-    const source = require('node:fs').readFileSync(
-      require.resolve('../src/supabase/queries.ts'),
-      'utf8',
-    ) as string;
-    expect(source).not.toMatch(/customer_id\s*[:=]\s*(params|props|arg)/);
+  const source = require('node:fs').readFileSync(
+    require.resolve('../src/supabase/queries.ts'),
+    'utf8',
+  ) as string;
+
+  it('sends no customer identifier, so there is nothing to tamper with', () => {
+    // The ownership filter is the RLS policy, not a query argument.
     expect(source).not.toMatch(/eq\(['"]customer_id['"]/);
+    expect(source).not.toMatch(/eq\(['"]id['"]/);
+  });
+
+  it('never writes to a table', () => {
+    // .insert( .update( .upsert( .delete( would all let a phone change money,
+    // device state or a support reply.
+    expect(source).not.toMatch(/\.(insert|update|upsert|delete|rpc)\s*\(/);
+  });
+
+  it('reads the table names that actually exist in the project', () => {
+    for (const table of ['profiles', 'devices', 'payments', 'notifications', 'support_tickets']) {
+      expect(source).toContain(`from('${table}')`);
+    }
+    // There is no installments table in the live schema.
+    expect(source).not.toContain("from('installments')");
   });
 });

@@ -97,15 +97,21 @@ UI into an unlocked, paid or restored state on its own.
 **Offline.** Cached data stays visible, but no financial or device-management
 decision is made offline. Reconnecting triggers a single refetch.
 
-**Supabase.** The app reads the installment schedule and notification centre
-directly from Supabase through PostgREST, scoped by the customer's Supabase JWT
-and constrained by RLS. Reads are fail-closed: they stay disabled until
-`npm run verify:rls` proves an anonymous request cannot read another customer's
-rows, and a `service_role` key in the env is rejected outright. Everything
+**Supabase.** The app can read the notification centre straight from Supabase
+through PostgREST, scoped by the customer's Supabase JWT and constrained by RLS.
+Reads are fail-closed: they stay disabled until `npm run verify:rls` proves an
+anonymous request can neither read nor write any of those tables, and a
+`service_role` / `sb_secret_` key in the env is rejected outright. Everything
 privileged — payment order creation, payment verification, device state,
-agreement acceptance, enrollment — stays on the REST API, where the backend
-revalidates the contract. `src/supabase/types.ts` is inferred, not generated:
-regenerate it with `supabase gen types typescript` before relying on it.
+agreement acceptance, enrollment, and anything written — stays on the REST API,
+where the backend revalidates the contract. `src/supabase/queries.ts` contains
+no `.insert()`, `.update()`, `.upsert()` or `.delete()`, enforced by a test.
+
+> **Live state: the Supabase project's RLS was found disabled.** See
+> `sql/fix-rls.sql` and run `npm run verify:rls` after applying it.
+> `EXPO_PUBLIC_SUPABASE_READS_ENABLED` stays `false` until it passes.
+> `src/supabase/types.ts` is hand-corrected from the live schema; regenerate it
+> with `supabase gen types typescript` before relying on it long-term.
 
 **Permissions.** `plugins/withDeviceManagement.ts` strips every Android
 permission outside its allow-list at prebuild time, and `app.config.ts`

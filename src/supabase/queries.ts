@@ -2,28 +2,47 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 
 import { getSupabaseClient } from './client';
 import type {
-  ContractRow,
   Database,
   DeviceRow,
-  InstallmentRow,
   NotificationRow,
+  PaymentRow,
+  ProfileRow,
+  SupportTicketRow,
 } from './types';
-import type { AppNotification, Device, Installment } from '@/types/domain';
+import type { AppNotification, Customer, Device, Payment, SupportTicket } from '@/types/domain';
 
 /**
- * Read-only Supabase queries.
+ * Read-only Supabase queries against the real schema.
  *
- * Every query is scoped by the authenticated Supabase user's JWT, which RLS
- * turns into a `customer_id` filter. The app never sends a customerId: there is
- * no parameter to forge, because ownership is decided by the database policy.
+ * Ownership is decided by the RLS policy, never by a query argument, so there is
+ * no customerId to tamper with: the SQL below filters on nothing, and the
+ * database returns only the signed-in customer's rows.
  *
- * When Supabase reads are unconfigured or blocked, these hooks stay disabled and
- * the app falls back to the REST API, so the app remains usable in a build that
- * ships without the publishable key.
+ * These hooks stay disabled whenever the client is unavailable (unconfigured,
+ * reads not enabled, or a privileged key supplied), and the screens fall back to
+ * the REST API. Table names match the live PostgREST schema: profiles, devices,
+ * payments, notifications, support_tickets.
+ *
+ * Nothing here writes. `devices.state` and `support_tickets.admin_response` in
+ * particular are server-authoritative.
  */
 
 function useSupabase() {
   return getSupabaseClient();
+}
+
+export function useSupabaseProfile(): UseQueryResult<Customer | null, Error> {
+  const client = useSupabase();
+  return useQuery<Customer | null, Error>({
+    queryKey: ['supabase', 'profile'],
+    enabled: client !== null,
+    queryFn: async () => {
+      if (!client) return null;
+      const { data, error } = await client.from('profiles').select('*').maybeSingle();
+      if (error) throw error;
+      return data ? mapProfile(data as ProfileRow) : null;
+    },
+  });
 }
 
 export function useSupabaseDevice(): UseQueryResult<Device | null, Error> {
@@ -33,50 +52,26 @@ export function useSupabaseDevice(): UseQueryResult<Device | null, Error> {
     enabled: client !== null,
     queryFn: async () => {
       if (!client) return null;
-      const { data, error } = await client
-        .from('devices')
-        .select('*')
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await client.from('devices').select('*').limit(1).maybeSingle();
       if (error) throw error;
       return data ? mapDevice(data as DeviceRow) : null;
     },
   });
 }
 
-export function useSupabaseInstallments(): UseQueryResult<Installment[], Error> {
+export function useSupabasePayments(): UseQueryResult<Payment[], Error> {
   const client = useSupabase();
-  return useQuery<Installment[], Error>({
-    queryKey: ['supabase', 'installments'],
+  return useQuery<Payment[], Error>({
+    queryKey: ['supabase', 'payments'],
     enabled: client !== null,
     queryFn: async () => {
       if (!client) return [];
       const { data, error } = await client
-        .from('installments')
+        .from('payments')
         .select('*')
-        .order('number', { ascending: true });
+        .order('date', { ascending: false });
       if (error) throw error;
-      return (data ?? []).map((row) => mapInstallment(row as InstallmentRow));
-    },
-  });
-}
-
-export function useSupabaseContract(): UseQueryResult<ContractRow | null, Error> {
-  const client = useSupabase();
-  return useQuery<ContractRow | null, Error>({
-    queryKey: ['supabase', 'contract'],
-    enabled: client !== null,
-    queryFn: async () => {
-      if (!client) return null;
-      const { data, error } = await client
-        .from('contracts')
-        .select('*')
-        .order('id', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as ContractRow | null) ?? null;
+      return (data ?? []).map((row) => mapPayment(row as PaymentRow));
     },
   });
 }
@@ -99,36 +94,69 @@ export function useSupabaseNotifications(): UseQueryResult<AppNotification[], Er
   });
 }
 
+export function useSupabaseTickets(): UseQueryResult<SupportTicket[], Error> {
+  const client = useSupabase();
+  return useQuery<SupportTicket[], Error>({
+    queryKey: ['supabase', 'tickets'],
+    enabled: client !== null,
+    queryFn: async () => {
+      if (!client) return [];
+      const { data, error } = await client
+        .from('support_tickets')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return (data ?? []).map((row) => mapTicket(row as SupportTicketRow));
+    },
+  });
+}
+
+function mapProfile(row: ProfileRow): Customer {
+  return {
+    id: row.id,
+    fullName: row.full_name,
+    phone: row.phone_number,
+    email: row.email,
+    photoUrl: null,
+    language: row.language === 'bn' ? 'bn' : 'en',
+    verifiedAt: null,
+    createdAt: row.created_at,
+  };
+}
+
 function mapDevice(row: DeviceRow): Device {
   return {
     id: row.id,
-    name: row.name,
+    name: row.device_name,
     manufacturer: row.manufacturer,
     model: row.model,
     androidVersion: row.android_version,
     enrollmentStatus: row.enrollment_status as Device['enrollmentStatus'],
     managementStatus: row.management_status as Device['managementStatus'],
-    // `device_state` is deliberately absent: authoritative device state is only
-    // ever read from the backend, which verifies payment before changing it.
-    deviceState: 'ACTIVE',
-    lastSyncedAt: row.last_synced_at,
+    deviceState: row.state as Device['deviceState'],
+    lastSyncedAt: row.last_sync_time,
     contractId: row.contract_id,
-    agreementVersion: row.agreement_version,
-    agreementAcceptedAt: row.agreement_accepted_at,
-    enterpriseManaged: row.enterprise_managed,
+    // The agreement record lives in the backend; this table does not carry the
+    // accepted version.
+    agreementVersion: null,
+    agreementAcceptedAt: null,
+    enterpriseManaged: row.is_managed,
   };
 }
 
-function mapInstallment(row: InstallmentRow): Installment {
+function mapPayment(row: PaymentRow): Payment {
   return {
-    id: row.id,
-    contractId: row.contract_id,
-    number: row.number,
+    id: row.transaction_id,
+    transactionId: row.transaction_id,
+    installmentId: null,
+    installmentNumber: row.installment_number,
     amount: row.amount,
-    paidAmount: row.paid_amount,
-    status: row.status as Installment['status'],
-    dueDate: row.due_date,
-    paidAt: row.paid_at,
+    currency: 'BDT',
+    status: row.status as Payment['status'],
+    method: row.payment_method ?? '—',
+    paidAt: row.date,
+    createdAt: row.created_at,
+    gateway: row.payment_method ?? '—',
   };
 }
 
@@ -144,4 +172,19 @@ function mapNotification(row: NotificationRow): AppNotification {
   };
 }
 
+function mapTicket(row: SupportTicketRow): SupportTicket {
+  return {
+    id: row.id,
+    subject: row.subject,
+    message: row.message,
+    category: row.category as SupportTicket['category'],
+    status: row.status as SupportTicket['status'],
+    createdAt: row.created_at,
+    updatedAt: row.created_at,
+    response: row.admin_response,
+    respondedAt: row.admin_response ? row.created_at : null,
+  };
+}
+
+export { mapProfile, mapDevice, mapPayment, mapNotification, mapTicket };
 export type { Database };
