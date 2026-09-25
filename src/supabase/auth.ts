@@ -1,33 +1,41 @@
-import { getSupabaseClient, isSupabaseAuthReady } from './client';
+import { getSupabaseClient, isSupabaseAuthReady, SUPABASE_URL } from './client';
 import { normalizeEmail } from '@/utils/format';
 
 /**
- * Phone + password sign-in, through Supabase Auth.
+ * Email + password sign-in and sign-up, through Supabase Auth.
  *
  * WHY THIS EXISTS
  *
- * Sign-in is by email address and password. The project's Email provider is
- * enabled, so unlike the OTP path this does not depend on the mailer being able
- * to deliver a code on demand — it only matters when a confirmation or reset
- * email has to go out.
+ * Supabase owns identity here. The customer API has no `/auth/*` routes to
+ * call, and RLS is evaluated against `auth.uid()` — without a real session
+ * every policy denies everything, so signing in here is what makes
+ * policy-scoped reads possible at all. The session's JWT is also the bearer the
+ * REST client sends.
  *
- * THE TRADE-OFF, STATED PLAINLY
+ * WHAT THIS MODULE GUARANTEES
  *
- * A password can be phished and reused; a one-time code cannot. That is a real
- * downgrade, and it is why the original design was passwordless. What this
- * implementation does to blunt it:
- *
- * - strength is enforced before the request leaves the device, not only by the
- *   server: 8+ characters with upper, lower and a digit
- * - the number is normalized to E.164, so `01712345678` and `+8801712345678`
- *   are one account rather than two
+ * - one message for every credential failure, so the endpoint cannot be used to
+ *   discover which addresses have accounts
+ * - the customer-facing copy never mentions the transport, and never implies
+ *   that an account exists (or does not)
  * - the password is never stored, logged or persisted locally. Supabase holds
  *   the hash; the app keeps only the session
- * - every failure path returns one message that does not reveal whether the
- *   number exists
+ * - the address is normalized by the store before it arrives, so
+ *   `Ayesha@Example.com` and `ayesha@example.com` are one account
+ * - strength is enforced on the device in `app/(auth)/register.tsx`, so a weak
+ *   password never leaves it. Raise the minimum in the dashboard too
+ *   (Authentication → Sign In / Providers → Email); the app floor is not a
+ *   substitute for it.
  *
- * Raise the minimum length in the Supabase dashboard (Authentication → Sign In
- * / Providers → Phone) as well; 8 is the app floor, not a substitute for it.
+ * WHY A REFUSED SIGN-IN IS LOGGED IN DEV ONLY
+ *
+ * "That email address or password is not correct." is the correct thing to show
+ * a stranger, and a useless thing to show whoever is running the build. A
+ * sign-in fails for very different reasons — no such address, wrong password,
+ * an unconfirmed address, a mailer rate limit that stops new accounts being
+ * created at all — and they all look identical from the outside on purpose. The
+ * real cause goes to the console in `__DEV__`; production shows the one
+ * message and nothing else.
  */
 
 export type AuthResult<T> = { ok: true; value: T } | { ok: false; message: string };
@@ -44,14 +52,59 @@ export interface Identity {
   hasSession: boolean;
 }
 
-/** One message for every failure, so this cannot enumerate accounts. */
-const GENERIC = 'That mobile number or password is not correct.';
+/**
+ * One message for every credential failure, so this cannot enumerate accounts.
+ *
+ * It has to name what the customer actually typed: sign-in here is by email
+ * address, and copy that says otherwise is worse than no copy at all.
+ */
+const GENERIC = 'That email address or password is not correct.';
 
-function classify(error: { message: string; status?: number } | null): string {
-  const detail = `${error?.message ?? ''} ${error?.status ?? ''}`.toLowerCase();
+/** A transport failure, as opposed to a refusal. */
+const UNREACHABLE = 'We could not reach the service. Check your connection and try again.';
 
-  // A number that exists with the wrong password must look identical to a
-  // number that does not exist.
+interface AuthFailure {
+  message: string;
+  status?: number;
+  code?: string;
+}
+
+/** The part of a Supabase user this module reads. */
+interface AuthedUser {
+  id: string;
+  email?: string | null;
+}
+
+/**
+ * The Supabase client *rejects* when the request cannot be made — a dead
+ * network, a DNS failure, a host that is not there — instead of returning an
+ * `error`. Left unguarded that rejection escapes as a raw `TypeError` and the
+ * sign-in screen ends up with no message to show at all, which reads to the
+ * customer as a button that does nothing. Every call goes through here so a
+ * transport failure becomes the same kind of answer as any other refusal.
+ */
+async function attempt<T>(
+  run: () => Promise<unknown>,
+): Promise<{ data: T | null; error: AuthFailure | null }> {
+  try {
+    const result = (await run()) as { data?: T | null; error?: AuthFailure | null } | null;
+    return { data: result?.data ?? null, error: result?.error ?? null };
+  } catch (thrown) {
+    return {
+      data: null,
+      error: {
+        message: thrown instanceof Error ? thrown.message : String(thrown),
+        code: 'transport',
+      },
+    };
+  }
+}
+
+function classify(error: AuthFailure | null): string {
+  const detail = `${error?.message ?? ''} ${error?.status ?? ''} ${error?.code ?? ''}`.toLowerCase();
+
+  // An address that exists with the wrong password must look identical to one
+  // that does not exist.
   if (detail.includes('invalid login') || detail.includes('invalid credentials')) {
     return GENERIC;
   }
@@ -67,6 +120,11 @@ function classify(error: { message: string; status?: number } | null): string {
   if (detail.includes('disabled') || detail.includes('not enabled')) {
     return 'Sign-in is not switched on for this service yet.';
   }
+  // Checked last, and matched on the transport code rather than the wording:
+  // "fetch" also appears in messages that are genuine refusals.
+  if (error?.code === 'transport' || /network|load failed|failed to fetch/.test(detail)) {
+    return UNREACHABLE;
+  }
   return 'We could not complete that. Please try again.';
 }
 
@@ -75,54 +133,26 @@ export async function signIn(email: string, password: string): Promise<AuthResul
     return { ok: false, message: 'Sign-in is not available in this build.' };
   }
 
-  const { data, error } = await getSupabaseClient().auth.signInWithPassword({
-    email: normalizeEmail(email),
-    password,
-  });
+  const { data, error } = await attempt<{ user: AuthedUser | null }>(() =>
+    getSupabaseClient().auth.signInWithPassword({
+      email: normalizeEmail(email),
+      password,
+    }),
+  );
+  const user = data?.user;
 
-  if (error || !data.user) {
-    return { ok: false, message: classify(error) };
-  }
-
-  return {
-    ok: true,
-    value: {
-      userId: data.user.id,
-      email: data.user.email ?? normalizeEmail(email),
-      isNewUser: false,
-      hasSession: true,
-    },
-  };
-}
-
-/** Why a signup was refused. Empty when it succeeded. */
-function diagnose(error: { message: string } | null): string {
-  const detail = `${error?.message ?? ''} ${(error as { code?: string })?.code ?? ''}`;
-  if (/over_email|rate limit/i.test(detail)) return 'mailer rate limit';
-  if (/provider_disabled|signup_disabled/i.test(detail)) return 'email provider disabled';
-  if (/email_address_invalid/i.test(detail)) return 'address rejected';
-  return 'other';
-}
-
-export async function signUp(email: string, password: string): Promise<AuthResult<Identity>> {
-  if (!isSupabaseAuthReady()) {
-    return { ok: false, message: 'Sign-in is not available in this build.' };
-  }
-
-  const { data, error } = await getSupabaseClient().auth.signUp({
-    email: normalizeEmail(email),
-    password,
-  });
-
-  if (error || !data.user) {
+  if (error || !user) {
     if (__DEV__) {
-      // The customer sees plain copy; the cause is logged for whoever is
-      // running the build, because "could not create account" on a working app
-      // is usually a project setting rather than a bug.
-      const cause = diagnose(error);
-      if (cause !== 'other') {
-          console.warn(`[auth] signUp refused: ${cause} — run \`npm run check:signup\``);
-      }
+      // Whoever is running the build needs the real cause; a customer does not.
+      // The address is deliberately left out of this line: a console that
+      // printed the address alongside the reason would be a list of who does and
+      // does not have an account.
+      console.warn(
+        `[auth] signIn refused against ${SUPABASE_URL ?? 'an unconfigured project'}: ${diagnose(
+          error,
+          'no session returned',
+        )}`,
+      );
     }
     return { ok: false, message: classify(error) };
   }
@@ -130,12 +160,76 @@ export async function signUp(email: string, password: string): Promise<AuthResul
   return {
     ok: true,
     value: {
-      userId: data.user.id,
-      email: data.user.email ?? normalizeEmail(email),
+      userId: user.id,
+      email: user.email ?? normalizeEmail(email),
+      isNewUser: false,
+      hasSession: true,
+    },
+  };
+}
+
+/**
+ * Why a request was refused, in words a developer can act on. Console only —
+ * never shown to a customer, and never combined with the address they typed.
+ */
+function diagnose(error: AuthFailure | null, nothingReturned: string): string {
+  const detail = `${error?.message ?? ''} ${error?.code ?? ''} ${error?.status ?? ''}`.toLowerCase();
+  if (detail.includes('invalid login') || detail.includes('invalid credentials')) {
+    return 'no such address, or the password is wrong';
+  }
+  if (detail.includes('not confirmed')) return 'the address has not been confirmed yet';
+  if (detail.includes('over_email') || detail.includes('rate limit')) {
+    return 'the mailer rate limit — new accounts cannot be created';
+  }
+  if (detail.includes('provider_disabled') || detail.includes('signup_disabled')) {
+    return 'the email provider is disabled';
+  }
+  if (detail.includes('email_address_invalid')) return 'the address was rejected';
+  if (error?.code === 'transport') {
+    return 'the auth service could not be reached — check EXPO_PUBLIC_SUPABASE_URL';
+  }
+  if (!error) return nothingReturned;
+  return error.code || error.message;
+}
+
+export async function signUp(email: string, password: string): Promise<AuthResult<Identity>> {
+  if (!isSupabaseAuthReady()) {
+    return { ok: false, message: 'Sign-in is not available in this build.' };
+  }
+
+  const { data, error } = await attempt<{ user: AuthedUser | null; session: unknown }>(() =>
+    getSupabaseClient().auth.signUp({
+      email: normalizeEmail(email),
+      password,
+    }),
+  );
+  const user = data?.user;
+
+  if (error || !user) {
+    if (__DEV__) {
+      // The customer sees plain copy; the cause is logged for whoever is
+      // running the build, because "could not create account" on a working app
+      // is nearly always a project setting rather than a bug — an unconfirmed
+      // address, or a mailer rate limit that blocks account creation outright.
+      console.warn(
+        `[auth] signUp refused against ${SUPABASE_URL ?? 'an unconfigured project'}: ${diagnose(
+          error,
+          'no account returned',
+        )} — run \`npm run check:signup\``,
+      );
+    }
+    return { ok: false, message: classify(error) };
+  }
+
+  return {
+    ok: true,
+    value: {
+      userId: user.id,
+      email: user.email ?? normalizeEmail(email),
       isNewUser: true,
       // No session means the address still has to be confirmed, so the app must
       // not assume the customer is signed in yet.
-      hasSession: data.session !== null,
+      hasSession: Boolean(data?.session),
     },
   };
 }
@@ -200,10 +294,12 @@ export async function resendConfirmation(email: string): Promise<AuthResult<null
   if (!isSupabaseAuthReady()) {
     return { ok: false, message: 'Sign-in is not available in this build.' };
   }
-  const { error } = await getSupabaseClient().auth.resend({
-    type: 'signup',
-    email: normalizeEmail(email),
-  });
+  const { error } = await attempt(() =>
+    getSupabaseClient().auth.resend({
+      type: 'signup',
+      email: normalizeEmail(email),
+    }),
+  );
   if (error) return { ok: false, message: classify(error) };
   return { ok: true, value: null };
 }

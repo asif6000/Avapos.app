@@ -103,14 +103,39 @@ if (status >= 200 && status < 300 && body.access_token) {
   process.exit(0);
 }
 
+if (status >= 200 && status < 300 && body.user) {
+  // 200 with a user but no session: the address exists, and there is no session
+  // until it is confirmed. This is the state that makes sign-in fail with
+  // "That email address or password is not correct." even though the account
+  // was created seconds earlier, so it is worth naming precisely.
+  console.log('  CREATED  The account exists, but the address is not confirmed.');
+  console.log('');
+  console.log('  Sign-up returned 200 with a user and no session, which is what Supabase');
+  console.log('  does when "Confirm email" is on. Until the address is confirmed there');
+  console.log('  is no session, so the app cannot sign in and the credentials look wrong.');
+  console.log('');
+  console.log(`  A throwaway account was created at ${probeEmail}`);
+  console.log('  Delete it in Dashboard → Authentication → Users when convenient.');
+  console.log('');
+  console.error('  If no confirmation email arrives, the built-in mailer has hit its');
+  console.error('  hourly limit — add a custom SMTP provider (Settings → Providers →');
+  console.error('  Email → SMTP) or turn off email confirmation. See below.');
+  console.error('');
+  process.exit(1);
+}
+
 const code = body?.error_code ?? body?.code ?? `HTTP ${status}`;
 
 if (/over_email|rate limit/i.test(String(code) + String(body?.msg))) {
   console.error('  BLOCKED  The built-in mailer has hit its hourly limit.');
   console.error('');
   console.error('  Supabase allows only a couple of messages an hour on the built-in');
-  console.error('  SMTP, and signup has to send a confirmation email, so account');
-  console.error('  creation fails until the limit resets.');
+  console.error('  SMTP, and signup has to send a confirmation email, so no account is');
+  console.error('  created at all until the limit resets.');
+  console.error('');
+  console.error('  Until this is fixed, nobody can create an account on this project,');
+  console.error('  and every sign-in attempt fails as a wrong password. To exercise the');
+  console.error('  app today, run it against the local mock instead — `npm run dev:mock`.');
   console.error('');
   console.error('  Fix — pick one:');
   console.error('');

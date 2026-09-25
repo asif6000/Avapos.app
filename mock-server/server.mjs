@@ -6,9 +6,12 @@
  *
  * WHY THIS EXISTS
  *
- * The real Supabase project has its Phone provider switched off, so signup
- * cannot be exercised until someone with dashboard access enables it. This server
- * lets the whole app be run, signed in, and verified today.
+ * The real Supabase project cannot create an account at the moment: the
+ * project's built-in mailer is rate limited, and sign-up has to send a
+ * confirmation email. Until someone with dashboard access adds an SMTP provider
+ * (or turns confirmation off), every sign-in against it fails as a wrong
+ * password. This server lets the whole app be run, signed in, and verified
+ * today, with the same credentials every time.
  *
  * WHAT IT IS NOT
  *
@@ -33,16 +36,39 @@
  *   EXPO_PUBLIC_SUPABASE_ANON_KEY=local-dev-anon-key \
  *   npm run dev:mock:app                  # terminal 2
  *
- * Sign in with any number, e.g. 01712345678 / Passw0rd!
+ * `127.0.0.1` only works on this machine. To sign in from a phone on the same
+ * network, use `npm run dev:mock:lan` and point the app at the address the
+ * startup banner prints.
+ *
+ * Sign in with asifghe78@gmail.com / Passw0rd!
  */
 
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
+import { networkInterfaces } from 'node:os';
 
 const PORT = Number(process.env.MOCK_PORT ?? 4000);
 const HOST = process.env.MOCK_HOST ?? '127.0.0.1';
 const ANON_KEY = process.env.MOCK_ANON_KEY ?? 'local-dev-anon-key';
 const JWT_SECRET = 'mock-only-signing-secret-not-a-real-key';
+
+/**
+ * The IPv4 addresses other devices on this network can reach, so the startup
+ * banner can print something a phone can actually use. Empty when there is no
+ * external interface, which is the normal case in a container.
+ */
+function lanAddresses() {
+  const interfaces = networkInterfaces();
+  const found = [];
+  for (const entries of Object.values(interfaces)) {
+    for (const entry of entries ?? []) {
+      const usable =
+        entry.family === 'IPv4' && !entry.internal && /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(entry.address);
+      if (usable) found.push(entry.address);
+    }
+  }
+  return found;
+}
 
 // A build that somehow points at this must be obvious, not silent.
 if (process.env.NODE_ENV === 'production') {
@@ -943,17 +969,31 @@ const server = createServer(async (request, response) => {
 seedDemoUser();
 
 server.listen(PORT, HOST, () => {
+  const reachable = lanAddresses();
+
   console.log('');
   console.log('  Mock services (development only)');
   console.log(`    Supabase Auth   http://${HOST}:${PORT}/auth/v1`);
   console.log(`    PostgREST       http://${HOST}:${PORT}/rest/v1`);
   console.log(`    Customer API    http://${HOST}:${PORT}/customer`);
+
+  if (reachable.length > 0) {
+    // `127.0.0.1` means "this machine", which a phone or a second browser
+    // cannot reach. These addresses can, as long as the two are on the same
+    // network — which is the whole reason `npm run dev:mock:lan` exists.
+    console.log('');
+    console.log('  Reachable from another device on this network:');
+    for (const address of reachable) {
+      console.log(`    http://${address}:${PORT}`);
+    }
+  }
+
   console.log('');
   console.log('  Start the app against it with:');
   console.log(`    EXPO_PUBLIC_SUPABASE_URL=http://${HOST}:${PORT} \\`);
   console.log(`    EXPO_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY} npm run dev:mock:app`);
   console.log('');
   console.log('  Sign in with  asifghe78@gmail.com  /  Passw0rd!   (seeded)');
-  console.log('  or create a new account with any number.');
+  console.log('  or create a new account with any address.');
   console.log('');
 });

@@ -10,6 +10,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "dev:mock": "node mock-server/server.mjs",
+    "dev:mock:lan": "MOCK_HOST=0.0.0.0 node mock-server/server.mjs --allow-remote",
     "dev:mock:app": "EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:4000 EXPO_PUBLIC_SUPABASE_ANON_KEY=local-dev-anon-key EXPO_PUBLIC_SUPABASE_READS_ENABLED=true expo start --web",
     "dev:mock:android": "EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:4000 EXPO_PUBLIC_SUPABASE_ANON_KEY=local-dev-anon-key EXPO_PUBLIC_SUPABASE_READS_ENABLED=true expo start",
     "prebuild": "expo prebuild --clean",

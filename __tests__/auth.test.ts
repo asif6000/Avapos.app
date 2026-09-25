@@ -81,14 +81,14 @@ describe('auth store (email and password)', () => {
   it('surfaces a customer-safe message on a bad password', async () => {
     authMock.signIn.mockResolvedValue({
       ok: false,
-      message: 'That mobile number or password is not correct.',
+      message: 'That email address or password is not correct.',
     });
 
     await expect(
       useAuthStore.getState().signIn('ayesha@example.com', 'wrong-password'),
     ).rejects.toThrow();
 
-    expect(useAuthStore.getState().error).toBe('That mobile number or password is not correct.');
+    expect(useAuthStore.getState().error).toBe('That email address or password is not correct.');
     expect(useAuthStore.getState().status).not.toBe('authenticated');
   });
 

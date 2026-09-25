@@ -33,6 +33,23 @@ npm run dev:mock:app  # terminal 2 — the app, pointed at the mock
 
 Sign in with `asifghe78@gmail.com` / `Passw0rd!`, or create a new account.
 
+**Those credentials exist only in the mock.** A build started any other way —
+`npm run web`, `npm start`, an EAS build — reads `.env.local` and points at the
+real project, which has no such account and cannot create one while the
+built-in mailer is rate limited. That is not a wrong password: the screen says
+"That email address or password is not correct." for every refusal on purpose,
+and in a dev build the console says which one it was. Check the banner:
+
+```
+[auth] signIn refused against https://<project>.supabase.co: no such address, or the password is wrong
+```
+
+`npm run check:signup` reports the same thing for sign-up.
+
+To sign in from a phone, or a second machine, `127.0.0.1` is not reachable — use
+`npm run dev:mock:lan`, which binds the LAN interface and prints an address to
+put in `EXPO_PUBLIC_SUPABASE_URL`.
+
 The mock refuses to start when `NODE_ENV=production`, refuses to bind anything
 but loopback without `--allow-remote`, and `eas.json` pins the real project URL
 in every profile — so no build can point at it. It also refuses writes to every
@@ -63,7 +80,7 @@ bundled asset.
 
 ```
 app/                     expo-router routes
-  (auth)/                login (email), otp (code), register (finish setup)
+  (auth)/                login (email), register (finish setup)
   (tabs)/                dashboard, installments, device, payments, support
   device/                enrollment, restriction, restored
   installments/[id]      installment detail
@@ -113,8 +130,11 @@ AsyncStorage, since that is what it is; the app stores no other secret.
 
 > **Live state: the project's built-in mailer is rate limited to a handful of
 > messages an hour**, which currently blocks the confirmation and reset emails
-> signup depends on. Add a custom SMTP provider (Supabase → Settings → Providers
-> → Email → SMTP) before real customers sign up.
+> signup depends on. `POST /auth/v1/signup` answers `429 email rate limit
+> exceeded` and creates no account at all, so on the real project nobody can
+> register and no seeded credential can work. Add a custom SMTP provider
+> (Supabase → Settings → Providers → Email → SMTP) before real customers sign
+> up; `npm run check:signup` reports which of the two states the project is in.
 
 **Authorization.** Requests are scoped by the session token alone. The app never
 sends `customerId`, `deviceId` or `contractId` to authorize anything, and uses
@@ -200,8 +220,10 @@ npm test
 ```
 
 Suites: API client (auth header, refresh, 401 funnel, retry policy, error
-sanitisation), auth store (login, OTP, sign-out, offline, session expiry),
-payments (server-verified outcomes only), customer isolation (no client-supplied
+sanitisation), auth store (login, sign-up, sign-out, offline, session expiry),
+auth messages (one message for every refusal, no phone wording on an email
+screen, transport failures caught, no password logged), payments
+(server-verified outcomes only), customer isolation (no client-supplied
 identity, 403 handling, amount tampering), offline / device-management
 capability reporting, formatting and localization, and a dashboard render test.
 
