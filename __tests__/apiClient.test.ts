@@ -2,7 +2,7 @@ import { ApiClient } from '@/api/client';
 import { ApiError, isCustomerFacingDetail, isSafeDetail, statusToKind } from '@/api/errors';
 import { createMemoryTokenStorage } from '@/auth/tokenStorage';
 
-const BASE = 'https://api.test.local/api';
+const BASE = 'https://api.test.local/customer';
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {

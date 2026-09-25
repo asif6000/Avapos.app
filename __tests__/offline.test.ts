@@ -4,7 +4,7 @@ import { deviceManagementService } from '@/services/deviceManagement';
 import { currentNetworkState, useNetworkStore } from '@/store/networkStore';
 import * as Network from 'expo-network';
 
-const BASE = 'https://api.test.local/api';
+const BASE = 'https://api.test.local/customer';
 
 const tokens = {
   accessToken: 'a',

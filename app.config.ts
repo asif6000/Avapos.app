@@ -9,7 +9,7 @@ import type { ExpoConfig, ConfigContext } from 'expo/config';
  */
 const config = ({ config }: ConfigContext): ExpoConfig => {
   const apiBaseUrl =
-    process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://srabontelecom.paymently.io/api';
+    process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://srabontelecom.paymently.io/customer';
 
 
   return {

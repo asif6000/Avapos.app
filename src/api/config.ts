@@ -18,7 +18,7 @@ export const API_BASE_URL: string =
     ? ENV_BASE_URL
     : typeof extra.apiBaseUrl === 'string'
       ? extra.apiBaseUrl
-      : 'https://srabontelecom.paymently.io/api').replace(/\/+$/, '');
+      : 'https://srabontelecom.paymently.io/customer').replace(/\/+$/, '');
 
 export const DEFAULT_TIMEOUT_MS = 20_000;
 

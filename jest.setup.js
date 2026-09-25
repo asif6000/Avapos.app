@@ -46,7 +46,7 @@ jest.mock('expo-constants', () => ({
   __esModule: true,
   default: {
     expoConfig: {
-      extra: { apiBaseUrl: 'https://srabontelecom.paymently.io/api' },
+      extra: { apiBaseUrl: 'https://srabontelecom.paymently.io/customer' },
     },
   },
 }));

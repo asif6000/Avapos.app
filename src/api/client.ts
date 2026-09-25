@@ -9,7 +9,6 @@ import {
 } from './errors';
 import { isExpired, secureTokenStorage, type TokenStorage } from '@/auth/tokenStorage';
 import { notifySessionExpired } from '@/auth/sessionEvents';
-import type { ApiEnvelope } from '@/types/api';
 
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -310,11 +309,27 @@ async function readBody(response: Response): Promise<unknown> {
   }
 }
 
+/**
+ * Unwraps a success payload.
+ *
+ * Tolerates the three shapes a Laravel API realistically returns:
+ *   { success: true, data: {...} }   explicit envelope
+ *   { data: {...} }                   Laravel resource / JSON:API style
+ *   { ...fields }                     bare payload
+ *
+ * A `success: false` envelope is NOT unwrapped here; it only ever arrives with
+ * a non-2xx status and is turned into an ApiError by `buildHttpError`.
+ */
 function unwrap<T>(payload: unknown): T {
   if (payload === null || payload === undefined) return null as T;
-  if (typeof payload === 'object' && 'success' in (payload as Record<string, unknown>)) {
-    const envelope = payload as ApiEnvelope<T>;
-    if (envelope.success === true) return envelope.data;
+  if (typeof payload !== 'object') return payload as T;
+
+  const record = payload as Record<string, unknown>;
+  if (record['success'] === true) {
+    return (record['data'] ?? null) as T;
+  }
+  if ('data' in record && Object.keys(record).length <= 2) {
+    return (record['data'] ?? null) as T;
   }
   return payload as T;
 }

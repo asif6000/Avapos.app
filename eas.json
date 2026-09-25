@@ -13,7 +13,7 @@
         "gradleCommand": ":app:assembleDebug"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/api",
+        "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/customer",
         "EXPO_PUBLIC_ENVIRONMENT": "development"
       }
     },
@@ -24,7 +24,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/api",
+        "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/customer",
         "EXPO_PUBLIC_ENVIRONMENT": "preview"
       }
     },
@@ -35,7 +35,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/api",
+        "EXPO_PUBLIC_API_BASE_URL": "https://srabontelecom.paymently.io/customer",
         "EXPO_PUBLIC_ENVIRONMENT": "production"
       }
     }

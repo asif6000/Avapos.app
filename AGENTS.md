@@ -4,8 +4,10 @@ React Native + Expo (SDK 57) customer application for mobile devices sold on an
 installment (EMI) plan. Customers see their device, installment schedule and
 payment history, pay installments, manage notifications, and contact support.
 
-The backend at `https://srabontelecom.paymently.io/api` is the only source of
-truth for money and device state. This app never decides that a payment
+The backend at `https://srabontelecom.paymently.io/customer` is the only source
+of truth for money and device state. The prefix is `/customer`, not `/api` — see
+`docs/api-contract.md` for the exact routes, the three that are live, and the
+ones still to be implemented. This app never decides that a payment
 succeeded, never grants or revokes device access, and never stores a secret.
 
 ---

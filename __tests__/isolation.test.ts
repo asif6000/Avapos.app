@@ -11,7 +11,7 @@ import { createMemoryTokenStorage } from '@/auth/tokenStorage';
  * identifier.
  */
 describe('customer data isolation', () => {
-  const BASE = 'https://api.test.local/api';
+  const BASE = 'https://api.test.local/customer';
 
   const customerATokens = {
     accessToken: 'customer-a-token',
