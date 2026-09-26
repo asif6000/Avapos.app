@@ -70,7 +70,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
        *
        * Raise it by one for each build you push.
        */
-      versionCode: 4,
+      versionCode: 5,
       predictiveBackGestureEnabled: false,
       adaptiveIcon: {
         backgroundColor: brand.surface,

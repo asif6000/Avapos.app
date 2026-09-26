@@ -1,5 +1,6 @@
 import { queryClient } from '@/api/queryClient';
 import { render, waitFor } from '@testing-library/react-native';
+import { InteractionManager } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -200,6 +201,33 @@ describe('an optional startup task must never stop the app opening', () => {
     const tree = await mount();
 
     await waitFor(() => expect(tree.toJSON()).toBeTruthy());
+  });
+
+  it('does not touch the background-task native subsystem before the app is on screen', async () => {
+    // `expo-background-task` resolves an Android AlarmManager exact alarm from a
+    // module with a JobService and a BroadcastReceiver in the manifest. Every other
+    // task here is a JavaScript promise, so a rejection is a warning; this one can
+    // fail natively during launch, and a native failure during launch is a process
+    // that is simply gone. Nothing on screen waits for it, so it waits instead.
+    //
+    // Driven through a captured callback rather than React Native's own timing:
+    // under jest there are no pending interactions, so `runAfterInteractions`
+    // fires immediately and the test would pass or fail on a scheduling detail
+    // that says nothing. Holding the callback proves what the code actually does.
+    const runAfterInteractions = jest
+      .spyOn(InteractionManager, 'runAfterInteractions')
+      .mockImplementation((() => ({ cancel: jest.fn(), then: jest.fn() })) as never);
+
+    await mount();
+
+    expect(runAfterInteractions).toHaveBeenCalled();
+    expect(backgroundSync.registerBackgroundSync).not.toHaveBeenCalled();
+
+    // Once the app is on screen, it registers.
+    const scheduled = runAfterInteractions.mock.calls[0]?.[0];
+    expect(typeof scheduled).toBe('function');
+    (scheduled as () => void)();
+    expect(backgroundSync.registerBackgroundSync).toHaveBeenCalled();
   });
 
   it('opens anyway when background sync throws synchronously', async () => {

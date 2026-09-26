@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef } from 'react';
+import { InteractionManager } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -156,8 +157,31 @@ function AppShell({ theme, isDark }: { theme: ReturnType<typeof useAppTheme>['th
     return typeof teardown === 'function' ? (teardown as () => void) : undefined;
   }, []);
 
+  /**
+   * Background sync is the one startup task that reaches into a *native*
+   * subsystem, so it is not allowed anywhere near the first frame.
+   *
+   * `expo-background-task` resolves an Android `AlarmManager` exact alarm when
+   * this is called, and on Android 12+ that is a permission-guarded system call
+   * made from a module that has a `TaskJobService` and a `BroadcastReceiver`
+   * declared in the manifest. Every other task in this file is a promise that
+   * resolves in JavaScript, where a rejection is a `console.warn` and the app
+   * carries on. This one is not, and a native failure during launch is a process
+   * that is simply gone: the splash screen, then nothing, and the reason written
+   * to logcat where a shop counter cannot read it.
+   *
+   * And it does not need to be early. It refreshes a cache in the background;
+   * nothing on screen is waiting for it, and the customer cannot tell the
+   * difference between a refresh that started 400ms after first paint and one
+   * that started before it. So it waits for the interaction to finish, which is
+   * exactly "after the app is on screen", and gives up quietly if the app is
+   * backgrounded before then.
+   */
   useEffect(() => {
-    cannotStopTheApp('backgroundSync.register', () => registerBackgroundSync());
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      void cannotStopTheApp('backgroundSync.register', () => registerBackgroundSync());
+    });
+    return () => interaction.cancel();
   }, []);
 
   useEffect(() => {
