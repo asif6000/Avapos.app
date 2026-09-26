@@ -387,6 +387,122 @@ describe('the panel may ask a phone, but cannot answer for it', () => {
   });
 });
 
+/**
+ * The panel shows the phone, not a row somebody typed.
+ *
+ * The app can read Android's own answers about a handset, and it now sends them.
+ * These are the properties that make that worth having, and the ones that make it
+ * dangerous if they go wrong:
+ *
+ * - a handset that has not spoken is marked as demo data, not blended in with
+ *   real ones
+ * - a phone's report is believed *downwards* — "I am not managed" comes down at
+ *   once — and never upwards, because a customer app cannot report its way into
+ *   owning itself
+ * - a report is a report: it grants no money, no access and no command
+ * - the screen says how live it is, rather than pulsing and hoping
+ */
+describe('the panel shows the phone, not a row somebody typed', () => {
+  const service = readFileSync(path.join(ROOT, 'src/services/deviceManagement.ts'), 'utf8');
+  const endpoints = readFileSync(path.join(ROOT, 'src/api/endpoints.ts'), 'utf8');
+  const mock = readFileSync(path.join(ROOT, 'mock-server', 'server.mjs'), 'utf8');
+  const reads = readFileSync(
+    path.join(ROOT, 'backend/app/Http/Controllers/Admin/AdminReadController.php'),
+    'utf8',
+  );
+  const sql = readFileSync(path.join(ROOT, 'sql/06-device-report.sql'), 'utf8');
+  const panels = read('src/screens/panels.tsx');
+  const ui = read('src/ui.tsx');
+
+  it('sends what the phone says on sync, not an empty body', () => {
+    // It used to send nothing at all: `sync()` took no argument, so a handset
+    // could be sold a contract and never once say what it was.
+    expect(endpoints).toContain('sync: (report: DeviceReport)');
+    expect(endpoints).toContain("'/devices/me/sync', { report }");
+    expect(service).toContain('async reportSelf(): Promise<DeviceReport>');
+  });
+
+  it('sends it with the agreement too, not only afterwards', () => {
+    expect(endpoints).toContain('report: DeviceReport;');
+    expect(service).toContain('report: await this.reportSelf()');
+  });
+
+  it('collects only what the consent screen lists, and no more', () => {
+    // The consent copy names model, manufacturer, Android version, a device
+    // identifier, and what Android reports about management. The native module has
+    // no IMEI and no serial, and the app asks for no location — and must not.
+    const identity = service.slice(
+      service.indexOf('async getIdentity()'),
+      service.indexOf('async isDeviceManaged()'),
+    );
+    expect(identity).toContain('androidId');
+    expect(identity).toContain('sdkInt');
+    expect(identity).not.toMatch(/imei|serial|macAddress|advertisingId/i);
+  });
+
+  it('marks a row nobody has spoken for as demo data', () => {
+    // An operator deciding whether to lock somebody's phone must never be looking
+    // at a phone that does not exist, so this is on the row rather than in a
+    // footnote.
+    expect(panels).toContain('<Pill label="Demo data" tone="warn" />');
+    expect(panels).toContain("device.source === 'PHONE'");
+    expect(reads).toContain("'source' => \$device->source === 'PHONE' ? 'PHONE' : 'DEMO'");
+    // Anything the database has never heard of reads as DEMO rather than trusted.
+    expect(sql).toContain("check (source in ('PHONE', 'DEMO'))");
+  });
+
+  it('believes a phone downwards and never upwards', () => {
+    // The asymmetry, which is the whole point of the feature. Believing a phone
+    // that claims to be managed would hand a customer app the ability to grant
+    // itself a lock button; refusing to believe one that claims it is not would
+    // show an operator a button for a phone that nobody can lock.
+    const fn = mock.slice(
+      mock.indexOf('function recordDeviceReport('),
+      mock.indexOf('const presentCustomerDevice'),
+    );
+    expect(fn).toContain('target.is_managed = target.is_managed === true && reportedManaged');
+    expect(fn).toContain("target.source = 'PHONE'");
+  });
+
+  it('keeps the report from granting anything', () => {
+    // A report is Android answering a question. It is not a claim on money, on
+    // access, or on a command, and the device's financing state stays the
+    // server's own.
+    const fn = mock.slice(
+      mock.indexOf('function recordDeviceReport('),
+      mock.indexOf('const presentCustomerDevice'),
+    );
+    expect(fn).not.toMatch(/state\s*=\s*'(RESTRICTED|UNLOCKED|SUSPENDED)'/);
+    expect(fn).not.toMatch(/installment|payment|paid/i);
+  });
+
+  it('says how live the screen is instead of pulsing and hoping', () => {
+    expect(ui).toContain('export function useLiveResource');
+    // Stops when nobody is watching, and catches up the moment they are.
+    expect(ui).toContain("document.addEventListener('visibilitychange'");
+    expect(ui).toContain("document.visibilityState === 'visible'");
+    // And the caller shows the age of the last completed request.
+    expect(panels).toContain('export function LiveMark');
+    expect(panels).toContain('checkedAt');
+  });
+
+  it('does not blank a good list every time it polls', () => {
+    // A skeleton on every tick would make a settled screen flash ten times a
+    // minute, which is a worse experience than a few seconds of staleness.
+    expect(panels).toContain('{loading && !data ? <Loading /> : null}');
+    expect(panels).toContain('{error && !data ? <Failure');
+  });
+
+  it('keeps a phone from describing itself twice over', () => {
+    // One handset, one row: a second sync from another phone must not silently
+    // take over a customer's device.
+    expect(sql).toContain('create unique index if not exists devices_android_id_idx');
+    // And the phone cannot write this through PostgREST, so it cannot rename
+    // itself — or set `is_managed` and buy itself a lock button.
+    expect(sql).toContain('policy is added here on purpose');
+  });
+});
+
 describe('the admin API', () => {
   const routes = readFileSync(path.join(ROOT, 'backend/routes/admin-api.php'), 'utf8');
   const middleware = readFileSync(

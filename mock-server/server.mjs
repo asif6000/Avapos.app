@@ -988,10 +988,10 @@ if (path === '/devices/me/enroll' && method === 'POST') {
   const customer = requireCustomer(request, response);
   if (!customer) return undefined;
 
-  // The agreement is recorded first, and the phone's own description of itself
-  // travels with it — so the handset that was consented on is the handset the
-  // server knows about from the very first request.
-  const agreement = agreements.get(customer.id);
+  // The phone's own description of itself travels with the agreement — so the
+  // handset that was consented on is the handset the server knows about from the
+  // very first request. `presentCustomerDevice` reads the agreement back off the
+  // record rather than a second local copy, so the two cannot disagree.
   const device = recordDeviceReport(customer, body.report);
 
   // An enrollment attempt is not an enrollment. On a retail phone Android grants
