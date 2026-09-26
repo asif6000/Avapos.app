@@ -411,7 +411,6 @@ describe('the service is read-only', () => {
     const auth = await token();
     for (const [method, path] of [
       ['POST', '/payments/create'],
-      ['POST', '/agreements/device-management/accept'],
       ['PATCH', '/profile'],
       ['POST', '/devices/me/sync'],
       ['DELETE', '/payments/anything'],

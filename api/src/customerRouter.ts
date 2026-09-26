@@ -13,6 +13,7 @@
 
 import { Router, type NextFunction, type Request, type Response } from 'express';
 
+import { acceptAgreement, AgreementError, readCurrentAgreement } from './agreements.js';
 import { authenticate, type CustomerRecord } from './auth.js';
 import { config } from './supabase.js';
 import {
@@ -147,17 +148,24 @@ async function requireCustomer(req: Request, res: Response): Promise<boolean> {
 export function customerRouter(): Router {
   const router = Router();
 
-  // Read-only, structurally: nothing but GET is routable.
+  // Read-only, with exactly one documented exception.
   //
   // `router.use`, not `router.all('*')` — Express 5's path-to-regexp rejects a
   // bare `*` and throws while the router is being built, which the route test
   // caught before a deploy would have.
+  //
+  // The exception is the customer's own consent. Everything else here is a read,
+  // and in particular every money and device-state write stays off this service:
+  // the request to mark a payment paid or a device released comes from the
+  // gateway and the panel, not from a phone.
   router.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
+    const isConsent = req.path === '/agreements/device-management/accept';
+
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !(isConsent && req.method === 'POST')) {
       res.status(405).json({
         status: 'error',
         code: 'read_only',
-        message: 'This service is read-only. Payments and any other write are not handled here.',
+        message: 'This service does not handle that write. Payments and device state are not changed here.',
       });
       return;
     }
@@ -179,6 +187,70 @@ export function customerRouter(): Router {
       if (!(await requireCustomer(req, res))) return;
       res.json(presentCustomer(customerOf(req)));
     } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * The consent the customer has already given, or null.
+   *
+   * Null is a normal answer and the enrollment screen has to be able to render it
+   * without treating it as a failure.
+   */
+  router.get('/agreements/device-management/current', async (req, res, next) => {
+    try {
+      if (!(await requireCustomer(req, res))) return;
+      const agreement = await readCurrentAgreement(customerOf(req));
+      // The shape the app reads is a record, so a customer with none gets a
+      // 404-shaped answer the enrollment screen already handles.
+      if (!agreement) {
+        res.status(404).json({
+          status: 'error',
+          code: 'no_agreement',
+          message: 'The device management agreement has not been accepted yet.',
+        });
+        return;
+      }
+      res.json(agreement);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  /**
+   * Record the customer's acceptance.
+   *
+   * The only write a customer can make, and the only one that is theirs to make.
+   * `customer_key` comes from the verified session, never from the body.
+   */
+  router.post('/agreements/device-management/accept', async (req: Request, res: Response, next: NextFunction) => {
+    // Authenticate first. An earlier version of this handler read `req.customer`
+    // directly and so never verified anything: with no session it threw, surfaced
+    // as 503, and with a session it would have written a consent record against
+    // whoever the request happened to arrive for. `requireCustomer` is the only
+    // thing that sets `req.customer`, so it has to run on every route.
+    if (!(await requireCustomer(req, res))) return;
+    const customer = customerOf(req);
+
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const asText = (value: unknown): string => (typeof value === 'string' ? value : '');
+
+    try {
+      const result = await acceptAgreement(customer, {
+        agreementVersion: asText(body.agreementVersion),
+        acceptedByName: asText(body.acceptedByName ?? body.fullName),
+      });
+      res.status(result.created ? 201 : 200).json(result.agreement);
+    } catch (error) {
+      if (error instanceof AgreementError) {
+        res.status(422).json({
+          status: 'error',
+          code: 'invalid_agreement',
+          field: error.field,
+          message: error.message,
+        });
+        return;
+      }
       next(error);
     }
   });

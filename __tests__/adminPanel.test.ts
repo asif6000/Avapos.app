@@ -534,7 +534,29 @@ describe('the admin API', () => {
     // The panel is served from /admin; if the API used the same prefix a route
     // would compete with a file for the same URL.
     expect(routes).toContain("Route::prefix('admin/api')");
-    expect(read('src/lib/api.ts')).toContain("`/admin/api${path}`");
+
+    const client = read('src/lib/api.ts');
+    // The prefix is still `/admin/api`. How it is assembled may vary — the base is
+    // configurable so the panel can be served from its own origin when the API is
+    // on another — but the route prefix itself may never change.
+    expect(client).toContain('/admin/api');
+
+    // Scoped to the request line rather than the whole file, because this file's
+    // own documentation discusses `/customer` in prose. The claim is about the
+    // URL the panel calls, not about the words in a comment.
+    const call = client
+      .split('\n')
+      .find((line) => line.includes('fetch(') && line.includes('admin/api'));
+    expect(call).toBeDefined();
+    expect(call).not.toContain('/customer');
+  });
+
+  it('defaults the API base to same-origin, and only moves it when told to', () => {
+    const client = read('src/lib/api.ts');
+    // Empty by default, because the deployed service sends no CORS headers: a
+    // panel on another origin could not read a single response. The escape hatch
+    // has to exist for that to be changeable at all.
+    expect(client).toContain("import.meta.env.VITE_ADMIN_API_BASE ?? ''");
   });
 
   it('takes the role from the token, not from the request', () => {
