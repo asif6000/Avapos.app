@@ -152,8 +152,23 @@ describe('customer data isolation', () => {
 
     expect(device.deviceState).toBe('RESTRICTED');
     // There is no endpoint that accepts a client-asserted device state.
+    //
+    // `pendingCommands` and `reportCommandOutcome` were added for device commands and
+    // are listed here because they cannot assert state, only report it: the first is a
+    // GET for commands the server issued to this session's own device, and the second
+    // reports the phone's own `APPLIED` / `FAILED` / `REFUSED` for a command that was
+    // issued to it. Neither lets a client name a device state, grant access, or answer
+    // for a device that is not this one. A new key here means a new way to assert
+    // state, and that is the thing this assertion exists to catch.
     const apiKeys = Object.keys(api.device);
-    expect(apiKeys).toEqual(['get', 'status', 'enroll', 'sync']);
+    expect(apiKeys).toEqual([
+      'get',
+      'status',
+      'enroll',
+      'sync',
+      'pendingCommands',
+      'reportCommandOutcome',
+    ]);
   });
 });
 

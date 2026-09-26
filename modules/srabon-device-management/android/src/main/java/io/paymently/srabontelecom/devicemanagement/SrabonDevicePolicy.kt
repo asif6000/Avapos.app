@@ -112,8 +112,16 @@ object SrabonDevicePolicy {
   fun isDeviceOwner(context: Context): Boolean =
     policy(context).isDeviceOwnerApp(context.packageName)
 
-  /** Whether *any* device owner exists, ours or somebody else's. */
-  fun hasDeviceOwner(context: Context): Boolean = policy(context).deviceOwner != null
+  /**
+   * Whether *any* device owner exists, ours or somebody else's.
+   *
+   * Read from the registered admin list, not from `DevicePolicyManager.getDeviceOwner()`:
+   * that getter needs the signature-level `MANAGE_USERS` permission and so is not in the
+   * public SDK at all. `getActiveAdmins()` needs nothing and every app may read it, which
+   * makes it the only honest way to answer this question from inside a customer app.
+   */
+  fun hasDeviceOwner(context: Context): Boolean =
+    policy(context).activeAdmins?.isNotEmpty() == true
 
   /**
    * The guard. Returns null when this app may act, or the reason it may not.
@@ -179,7 +187,7 @@ object SrabonDevicePolicy {
     }
 
     return try {
-      policy(context).lockNow(adminComponent(context))
+      policy(context).lockNow()
       prefs(context).edit()
         .putLong(KEY_LEASE_EXPIRES_AT, leaseExpiresAt)
         .putLong(KEY_RESTRICTED_SINCE, now)
@@ -270,7 +278,7 @@ object SrabonDevicePolicy {
     }
 
     return try {
-      policy(context).resetPassword(pin, DevicePolicyManager.PASSWORD_QUALITY_SPECIAL)
+      policy(context).resetPassword(pin, DevicePolicyManager.PASSWORD_QUALITY_NUMERIC)
       prefs(context).edit().putBoolean(KEY_CREDENTIAL_PRESENT, true).apply()
       outcome(OK, "A screen PIN was set. This is the only PIN that unlocks this phone.")
     } catch (error: Exception) {
@@ -354,7 +362,7 @@ object SrabonDevicePolicy {
         .putLong(KEY_RESTRICTED_SINCE, 0L)
         .putInt(KEY_FAILED_ATTEMPTS, 0)
         .apply()
-      policy(context).clearDeviceOwnerApp(adminComponent(context))
+      policy(context).clearDeviceOwnerApp(context.packageName)
       outcome(OK, "This phone was released. It is an ordinary phone again and cannot be managed by this app ever again.")
     } catch (error: Exception) {
       Log.w(TAG, "clearDeviceOwnerApp was refused by Android", error)
@@ -409,7 +417,6 @@ object SrabonDevicePolicy {
   fun report(context: Context): Map<String, Any?> {
     expireLeaseIfDue(context)
 
-    val dpm = policy(context)
     val stored = prefs(context)
     val restrictedSince = stored.getLong(KEY_RESTRICTED_SINCE, 0L)
     val leaseExpiresAt = stored.getLong(KEY_LEASE_EXPIRES_AT, 0L)
@@ -417,7 +424,7 @@ object SrabonDevicePolicy {
     return mapOf(
       "isDeviceOwner" to isDeviceOwner(context),
       "hasDeviceOwner" to hasDeviceOwner(context),
-      "deviceOwnerPackage" to dpm.deviceOwner?.packageName,
+      "deviceOwnerPackage" to if (isDeviceOwner(context)) context.packageName else null,
       "adminEnabledAt" to stored.getLong(KEY_ADMIN_ENABLED_AT, 0L).takeIf { it > 0L },
       "provisioningRequestedAt" to stored.getLong(KEY_PROVISIONING_REQUESTED_AT, 0L).takeIf { it > 0L },
       "isRestricted" to (restrictedSince > 0L),

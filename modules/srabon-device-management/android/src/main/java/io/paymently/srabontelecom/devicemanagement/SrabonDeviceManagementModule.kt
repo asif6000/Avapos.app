@@ -59,6 +59,22 @@ class SrabonDeviceManagementModule : Module() {
     else -> "NOT_ENROLLED"
   }
 
+  /**
+   * Whether *any* device admin is registered on this phone, ours or somebody else's.
+   *
+   * Built from `getActiveAdmins()` rather than from `DevicePolicyManager.getDeviceOwner()`.
+   * That getter is not part of the public SDK — it needs the signature-level
+   * `MANAGE_USERS` permission, so it is absent from `android.jar` and will not resolve
+   * at `compileSdk` 36. A normal app is not entitled to ask who the device owner is, and
+   * the honest answer to "is this phone managed by somebody?" is the registered admin
+   * list, which every app may read.
+   *
+   * An empty list is the answer on an ordinary phone, and `isNotEmpty()` is what makes
+   * that answerable: the list is never null, so testing it for null was always true and
+   * reported a device admin on every handset regardless of what Android actually had.
+   */
+  private fun hasRegisteredAdmin(): Boolean = devicePolicyManager.activeAdmins?.isNotEmpty() == true
+
   override fun definition() = ModuleDefinition {
     Name("SrabonDeviceManagement")
 
@@ -75,20 +91,22 @@ class SrabonDeviceManagementModule : Module() {
       if (devicePolicyManager.isDeviceOwnerApp(context.packageName)) {
         context.packageName
       } else {
-        devicePolicyManager.deviceOwner?.packageName
+        // Deliberately `null` rather than somebody else's package name. Identifying
+        // the current device owner requires `MANAGE_USERS`, which a customer app does
+        // not hold and should not ask for, so when the owner is not this app the only
+        // truthful answer is that this app cannot see who it is.
+        null
       }
     }
 
     AsyncFunction("hasActiveProfileOwner") {
-      devicePolicyManager.isProfileOwnerApp(context.packageName) ||
-        devicePolicyManager.deviceOwner != null ||
-        devicePolicyManager.activeAdmins != null
+      devicePolicyManager.isProfileOwnerApp(context.packageName) || hasRegisteredAdmin()
     }
 
     AsyncFunction("getManagementStatus") {
       val managed = devicePolicyManager.isDeviceOwnerApp(context.packageName) ||
         devicePolicyManager.isProfileOwnerApp(context.packageName)
-      statusFor(managed, devicePolicyManager.deviceOwner != null)
+      statusFor(managed, hasRegisteredAdmin())
     }
 
     AsyncFunction("getEnrollmentStatus") {
