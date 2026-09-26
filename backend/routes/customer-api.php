@@ -1,8 +1,13 @@
 <?php
 
+use App\Http\Controllers\Api\AgreementController;
 use App\Http\Controllers\Api\CustomerDeviceController;
 use App\Http\Controllers\Api\CustomerPaymentController;
+use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\GatewayCallbackController;
+use App\Http\Controllers\Api\InstallmentController;
+use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\SupportTicketController;
 use App\Http\Middleware\VerifySupabaseJwt;
 use Illuminate\Support\Facades\Route;
 
@@ -41,6 +46,58 @@ Route::prefix('customer')->group(function () {
         Route::patch('profile', [CustomerPaymentController::class, 'updateProfile']);
         Route::get('settings', [CustomerPaymentController::class, 'settings']);
         Route::patch('settings', [CustomerPaymentController::class, 'updateSettings']);
+
+        // ---- Home ------------------------------------------------------------
+        // The whole screen, assembled here. See DashboardController for why the
+        // phone is not allowed to assemble it from five separate reads.
+        Route::get('dashboard', [DashboardController::class, 'show']);
+
+        // ---- The schedule ----------------------------------------------------
+        // Scoped to the session's customer on every route. `plan` is declared
+        // before `{id}` on purpose: Laravel matches in order, and the reverse would
+        // make "plan" answer as an installment id.
+        Route::get('installments', [InstallmentController::class, 'index']);
+        Route::get('installments/plan', [InstallmentController::class, 'plan']);
+        Route::get('installments/{id}', [InstallmentController::class, 'show']);
+
+        // ---- This phone ------------------------------------------------------
+        // The four device reads and the two writes a phone may make about itself.
+        //
+        // None of them accepts a device id. The device is resolved from the session,
+        // so there is nothing in a request for a modified client to repoint.
+        //
+        // `state` is never written here. It moves when staff act or when a payment
+        // this server verified settles, and a handset that reports `ENROLLED` has
+        // still not thereby been enrolled.
+        Route::get('devices/me', [CustomerDeviceController::class, 'show']);
+        Route::get('devices/me/status', [CustomerDeviceController::class, 'status']);
+        Route::post('devices/me/enroll', [CustomerDeviceController::class, 'enroll']);
+        Route::post('devices/me/sync', [CustomerDeviceController::class, 'sync']);
+
+        // ---- Notification centre ---------------------------------------------
+        // Reads are also available directly from Supabase through PostgREST, scoped
+        // by the customer's JWT. These exist for the native build and for the writes,
+        // and `read` is the only thing a customer may write: a notification is a
+        // pointer, never a decision.
+        Route::get('notifications', [NotificationController::class, 'index']);
+        Route::post('notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('notifications/devices', [NotificationController::class, 'registerDevice']);
+        Route::post('notifications/{id}/read', [NotificationController::class, 'markRead']);
+
+        // ---- Support ---------------------------------------------------------
+        // The one thing a customer creates for themselves. It records a question
+        // and cannot move money, a device or an agreement.
+        Route::get('support/tickets', [SupportTicketController::class, 'index']);
+        Route::post('support/tickets', [SupportTicketController::class, 'store']);
+        Route::get('support/tickets/{id}', [SupportTicketController::class, 'show']);
+
+        // ---- Agreement and enrollment -----------------------------------------
+        // Recorded before any enrollment is attempted. `accept` writes down what
+        // the customer agreed to; it does not enrol a phone, because Android grants
+        // device-owner status only to an app an enterprise DPC provisioned.
+        Route::get('agreements/device-management/current', [AgreementController::class, 'current']);
+        Route::post('agreements/device-management/accept', [AgreementController::class, 'accept']);
+        Route::get('agreements/device-management/status', [AgreementController::class, 'enrollmentStatus']);
 
         // ---- Money --------------------------------------------------------
         // `amount` arrives from the phone for display only. Re-validate it
