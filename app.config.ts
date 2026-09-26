@@ -11,16 +11,17 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
   const apiBaseUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://srabontelecom.paymently.io/customer';
 
-  // The EAS project this app builds under. The slug is `srabon-telecom-customer`
-  // and the package is `io.paymently.srabontelecom` — both of which are the
-  // identity EAS will sign the APK with, so a build aimed at any other project
-  // produces a phone app signed for the wrong thing.
+  // The EAS project this app builds under, `@asif26s-team/ava-pos` — the only
+  // project on the account. EAS refuses a build whose `extra.eas.projectId`
+  // resolves to a project with a different `slug`, so the slug below is that
+  // project's and not a name of our choosing. Nothing else reads it.
   //
-  // The placeholder is spoken out loud rather than left to be discovered by a
-  // failed upload: `eas init` writes the real id here, and until that has
-  // happened this app has no EAS project and cannot be built.
+  // What actually identifies the app on a phone is `android.package` and
+  // `scheme`, and those are unchanged: an APK built from here installs as
+  // `io.paymently.srabontelecom`. What the project id decides is which account
+  // holds the build, the signing credentials and the channels.
   const UNLINKED = '00000000-0000-0000-0000-000000000000';
-  const projectId = process.env.EAS_PROJECT_ID ?? UNLINKED;
+  const projectId = process.env.EAS_PROJECT_ID ?? '43d0b5bb-580a-4c45-82ae-51e85fda545e';
 
   if (projectId === UNLINKED) {
     console.warn(
@@ -33,7 +34,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
   return {
     ...config,
     name: 'Customer',
-    slug: 'srabon-telecom-customer',
+    slug: 'ava-pos',
     scheme: 'srabontelecom',
     version: '1.0.0',
     orientation: 'portrait',

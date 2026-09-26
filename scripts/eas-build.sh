@@ -34,11 +34,10 @@ PLATFORM="${2:-android}"
 TOKEN_FILE="${EXPO_TOKEN_FILE:-$HOME/.expo-token}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Refuse to guess a build target. `srabon-telecom-customer` is the identity this
-# APK is signed with; building it under any other EAS project produces a phone
-# app belonging to something else, and the failure shows up after the upload
-# rather than before it.
-EXPECTED_SLUG='srabon-telecom-customer'
+# Refuse to guess a build target. EAS refuses a build whose projectId resolves to
+# a project with a different slug, so the slug and the projectId in app.config.ts
+# have to agree; building against any other project is a build for something else.
+EXPECTED_SLUG='ava-pos'
 
 cd "$ROOT"
 
