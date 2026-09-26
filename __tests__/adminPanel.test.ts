@@ -59,6 +59,33 @@ describe('the admin panel holds no credential', () => {
     expect(source.match(/fetch\(/g)?.length ?? 0).toBeLessThanOrEqual(2);
   });
 
+  it('can point at the Supabase project the mock publishes, on its own origin', () => {
+    // The same `same-origin` switch the customer app has, so a panel on a tunnel
+    // or a LAN address needs no hard-coded host and makes no cross-origin
+    // request at all.
+    const source = read('src/lib/api.ts');
+    expect(source).toContain("configured.replace('same-origin', window.location.origin)");
+  });
+
+  it('cannot be built without its Supabase settings', () => {
+    // The failure this prevents is quiet and total: a panel with no URL and no
+    // key still builds and still loads, and then refuses every sign-in as though
+    // the server were broken.
+    const guard = readFileSync(path.join(ADMIN, 'check-env.mjs'), 'utf8');
+    expect(guard).toContain('VITE_SUPABASE_URL');
+    expect(guard).toContain('VITE_SUPABASE_ANON_KEY');
+    expect(guard).toContain('process.exit(1)');
+
+    const scripts = JSON.parse(readFileSync(path.join(ADMIN, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(scripts.scripts.build).toContain('check-env.mjs');
+  });
+
+  it('says which build setting is missing, rather than blaming the server', () => {
+    expect(read('src/lib/api.ts')).toContain('VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+  });
+
   it('asks the server who it is, and treats a 403 as a signed-out state', () => {
     const source = read('src/lib/api.ts');
 

@@ -14,9 +14,28 @@
  *    with a plain message, not a hidden tab.
  */
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL ?? '';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 const SESSION_KEY = 'srabon.admin.session';
+
+/**
+ * The Supabase project this panel signs staff in against.
+ *
+ * `same-origin` resolves to the origin that served the page, which is what the
+ * local mock needs: it publishes Supabase Auth on the same origin as the panel,
+ * so the sign-in request is same-origin too. The real project is a different
+ * host, so a production build sets the URL explicitly.
+ *
+ * The same idea as `resolveBase` in the customer app, and for the same reason —
+ * one switch, and a phone on a tunnel or a LAN address needs no hard-coded host.
+ */
+function resolveSupabaseUrl(configured: string | undefined): string {
+  if (!configured) return '';
+  if (configured !== 'same-origin' && !configured.startsWith('same-origin/')) return configured;
+  if (typeof window === 'undefined' || typeof window.location?.origin !== 'string') return '';
+  return configured.replace('same-origin', window.location.origin);
+}
+
+const SUPABASE_URL = resolveSupabaseUrl(import.meta.env.VITE_SUPABASE_URL as string | undefined);
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ?? '';
 
 export interface AdminIdentity {
   email: string;
@@ -63,7 +82,13 @@ function writeSession(session: Session | null) {
  */
 export async function signIn(email: string, password: string): Promise<void> {
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    throw new ApiError('This build is not configured for sign-in.', 500);
+    // A build without these is a panel nobody can sign in to, which looks like a
+    // broken server rather than a broken build. `npm run build` refuses to
+    // produce one; this is the message if it happens anyway.
+    throw new ApiError(
+      'This build is not configured for sign-in. Rebuild with VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+      500,
+    );
   }
 
   const response = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {

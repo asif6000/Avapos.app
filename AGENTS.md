@@ -138,8 +138,8 @@ The shared building blocks, and what they are for:
 
 ## The admin panel
 
-`admin/` is a small React web app served from **`/admin`, on the same origin as
-the customer API** — deliberately, because the API sends no CORS headers, so a
+`admin/` is a small React web app (Vite + React, built into `admin/dist`) served
+from **`/admin`, on the same origin as the customer API** — deliberately, because the API sends no CORS headers, so a
 panel on its own origin could not read a single response. Its API is
 `/admin/api/*`, a separate prefix so a route can never be confused with a file.
 
@@ -155,6 +155,12 @@ must pass signature verification *and* be staff, checked on every request, with
 the role read from the token's `app_metadata` (which a client cannot write). A
 customer's own token is refused with 403 on every admin route, and a staff token
 is refused on every customer route, because neither session is the other's.
+
+Its Supabase settings are build-time: `VITE_SUPABASE_URL` (which accepts the same
+`same-origin` value the customer app uses, so a panel on a tunnel needs no
+hard-coded host) and `VITE_SUPABASE_ANON_KEY` — the publishable key, never a
+service role. `admin/check-env.mjs` refuses to build a panel without them, because
+a panel that cannot sign anyone in otherwise looks like a broken server.
 
 The panel can read, and it can act — but the actions are shaped by what they are:
 releasing a phone or cancelling money needs a reason, every action is written to
