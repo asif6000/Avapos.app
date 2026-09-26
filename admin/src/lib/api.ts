@@ -121,11 +121,25 @@ export function signOut() {
 
 /* ----------------------------------------------------------------- requests */
 
+/**
+ * Where `/admin/api` lives.
+ *
+ * Empty by default, which means "same origin" — the reason the deployed service
+ * was written with no CORS headers at all: a panel on its own origin could not
+ * read a single response, so it has to be served from the API's origin.
+ *
+ * Set `VITE_ADMIN_API_BASE` only when the panel is genuinely on another origin,
+ * in which case the API's `ALLOWED_ORIGINS` must name the panel's origin or the
+ * browser will discard every response. A wrong value here fails as a network
+ * error, not as a permission error, so it is worth being explicit.
+ */
+const ADMIN_API_BASE = (import.meta.env.VITE_ADMIN_API_BASE ?? '').replace(/\/$/, '');
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const session = readSession();
   if (!session) throw new ApiError('Please sign in.', 401);
 
-  const response = await fetch(`/admin/api${path}`, {
+  const response = await fetch(`${ADMIN_API_BASE}/admin/api${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
