@@ -4,6 +4,8 @@ import {
   withAndroidManifest,
   type ConfigPlugin,
 } from '@expo/config-plugins';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const PACKAGE = 'io.paymently.srabontelecom';
 
@@ -77,6 +79,47 @@ const FORBIDDEN_PERMISSIONS: ReadonlySet<string> = new Set([
 ]);
 
 const RECEIVER = 'io.paymently.srabontelecom.devicemanagement.SrabonDeviceAdminReceiver';
+const BIND_DEVICE_ADMIN = 'android.permission.BIND_DEVICE_ADMIN';
+
+/**
+ * The device-admin library's own manifest, relative to the project root.
+ *
+ * This is the file that has to declare the receiver, and the reason the check
+ * below reads it rather than the generated app manifest is the whole subtlety:
+ * `expo-modules-autolinking` adds this module as a Gradle dependency, and **Gradle's
+ * manifest merger** is what folds the receiver and `BIND_DEVICE_ADMIN` into the
+ * app — after prebuild has finished and the APK is being assembled. The manifest
+ * `expo prebuild` writes to `android/app/src/main/` therefore never contains the
+ * receiver, at any point, on any machine.
+ *
+ * An earlier version of this plugin asserted the receiver against that generated
+ * manifest. It could not pass, and it took every native build down with it: EAS
+ * reported "Unknown error. See logs of the Prebuild build phase", which reads like
+ * a corrupt toolchain and is nothing of the kind.
+ */
+const MODULE_MANIFEST = 'modules/srabon-device-management/android/src/main/AndroidManifest.xml';
+
+/**
+ * Drops XML comments before anything is matched against the file.
+ *
+ * A commented-out `<receiver>` is a *commented-out* receiver, and a substring
+ * search does not know the difference — so a declaration that has been disabled in
+ * the source would pass a check whose entire job is to notice that it was
+ * disabled.
+ */
+function withoutComments(manifest: string): string {
+  return manifest.replace(/<!--[\s\S]*?-->/g, '');
+}
+
+/** Does this library manifest declare a `<receiver>` for the device admin? */
+export function declaresReceiver(manifest: string): boolean {
+  return withoutComments(manifest).includes(`android:name="${RECEIVER}"`);
+}
+
+/** Does it declare the permission the receiver's own enforcement depends on? */
+export function declaresBindDeviceAdmin(manifest: string): boolean {
+  return withoutComments(manifest).includes(`android:name="${BIND_DEVICE_ADMIN}"`);
+}
 
 /**
  * withDeviceManagement
@@ -86,21 +129,22 @@ const RECEIVER = 'io.paymently.srabontelecom.devicemanagement.SrabonDeviceAdminR
  * 1. Lock the manifest down to `ALLOWED_PERMISSIONS`, so no plugin can introduce
  *    an accessibility service, overlay, usage-stats or install permission — and fail
  *    the build if one of the forbidden set shows up anyway.
- * 2. Verify that the device-admin receiver survived step 1.
+ * 2. Verify that the device-admin receiver and its permission are actually declared
+ *    by the module that supplies them.
  *
  * That second job is the one that matters here, and it exists because of what went
  * wrong the first time this list was written. The list did not contain
- * `BIND_DEVICE_ADMIN`, the strip below ran over the merged manifest, and it
- * removed the permission the policy agent needs to ever be enabled. Nothing failed:
- * the build succeeded, the app installed, the module loaded, and every call was
- * refused at runtime with `NOT_DEVICE_OWNER` on a phone that was correctly
- * provisioned. A missing capability that reports itself as "this phone is not
- * managed" is indistinguishable from a shop that never provisioned anything, which
- * is the worst possible failure for a device-management feature: it looks like
- * correct behaviour.
+ * `BIND_DEVICE_ADMIN`, and the build succeeded, the app installed, the module
+ * loaded, and every call was refused at runtime with `NOT_DEVICE_OWNER` on a phone
+ * that was correctly provisioned. A missing capability that reports itself as
+ * "this phone is not managed" is indistinguishable from a shop that never
+ * provisioned anything, which is the worst possible failure for a
+ * device-management feature: it looks like correct behaviour.
  *
- * So the receiver is now asserted rather than assumed. If the strip removes it, or
- * a rename breaks the name, prebuild fails loudly instead.
+ * So it is asserted rather than assumed, at the only point where it is still
+ * checkable. If the receiver is renamed, if the module's manifest stops declaring
+ * it, or if `BIND_DEVICE_ADMIN` is ever dropped from the allow-list that runs over
+ * the app manifest, prebuild fails loudly instead.
  */
 const withDeviceManagement: ConfigPlugin = (config) =>
   withAndroidManifest(config, (mod) => {
@@ -148,25 +192,57 @@ const withDeviceManagement: ConfigPlugin = (config) =>
   });
 
 /**
- * Asserts the policy agent is actually in the built manifest.
+ * Asserts the policy agent is really declared by the module that supplies it.
  *
- * Runs as a second, separate plugin so its failure names the receiver rather than a
- * permission, which is the thing a person debugging an unenrollable phone will go
- * looking for.
+ * Reads the library manifest rather than the generated app manifest, because
+ * Gradle is what merges the two and prebuild only ever sees the app's half. The
+ * failure names the receiver rather than a permission, which is the thing a person
+ * debugging an unenrollable phone will go looking for.
  */
 const withDeviceAdminReceiver: ConfigPlugin = (config) =>
   withAndroidManifest(config, (mod) => {
-    const application = AndroidConfig.Manifest.getMainApplicationOrThrow(mod.modResults);
-    const receivers = (application.receiver as Array<{ $?: { 'android:name'?: string } }> | undefined) ?? [];
-    const present = receivers.some((receiver) => receiver.$?.['android:name'] === RECEIVER);
+    const projectRoot = (mod as unknown as { modRequest?: { projectRoot?: string } }).modRequest
+      ?.projectRoot;
 
-    if (!present) {
+    if (!projectRoot) {
       throw new Error(
-        `withDeviceManagement: ${RECEIVER} is missing from AndroidManifest.xml. Without it this `
-          + 'app can never hold device-owner status, and every device command will be refused with '
-          + 'NOT_DEVICE_OWNER — which looks identical to a phone the shop never provisioned. Check '
-          + 'that modules/srabon-device-management/android/src/main/AndroidManifest.xml is being '
-          + 'merged, and that BIND_DEVICE_ADMIN is still in ALLOWED_PERMISSIONS.',
+        'withDeviceManagement: no project root, so the device-admin module manifest could not '
+          + 'be read. This plugin has to run as a mod.',
+      );
+    }
+
+    const path = join(projectRoot, MODULE_MANIFEST);
+    let xml: string;
+    try {
+      xml = readFileSync(path, 'utf8');
+    } catch {
+      throw new Error(
+        `withDeviceManagement: cannot read ${MODULE_MANIFEST}. Without it this app can never hold `
+          + 'device-owner status, and every device command will be refused with NOT_DEVICE_OWNER — '
+          + 'which looks identical to a phone the shop never provisioned.',
+      );
+    }
+
+    if (!declaresReceiver(xml)) {
+      throw new Error(
+        `withDeviceManagement: ${RECEIVER} is missing from ${MODULE_MANIFEST}. Without it this app `
+          + 'can never hold device-owner status, and every device command will be refused with '
+          + 'NOT_DEVICE_OWNER — which looks identical to a phone the shop never provisioned.',
+      );
+    }
+
+    if (!declaresBindDeviceAdmin(xml)) {
+      throw new Error(
+        `withDeviceManagement: ${MODULE_MANIFEST} does not declare ${BIND_DEVICE_ADMIN}. The `
+          + 'receiver cannot ever be enabled without it.',
+      );
+    }
+
+    if (!ALLOWED_PERMISSIONS.has(BIND_DEVICE_ADMIN)) {
+      throw new Error(
+        `withDeviceManagement: ${BIND_DEVICE_ADMIN} has been removed from ALLOWED_PERMISSIONS. `
+          + 'The allow-list runs over the app manifest and the strip is what this check is guarding, '
+          + 'so it has to keep the permission even though today nothing app-side declares it.',
       );
     }
 
