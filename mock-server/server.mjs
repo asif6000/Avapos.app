@@ -939,6 +939,73 @@ async function handleCustomer(request, response, url) {
     return json(response, 200, presentCustomer(customer));
   }
 
+  if (path === '/device/commands' && method === 'GET') {
+    // The phone asking what it has been told to do.
+    //
+    // No device id in the path or the query: the device is found from the session,
+    // exactly as the real controller does, so a modified request cannot ask what
+    // somebody else's handset has been told to do.
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const device = devices.find((d) => d.customer_key === customer.id);
+    if (!device) return error(response, 404, 'not_found', 'No phone is linked to this account.');
+
+    const pending = deviceCommands
+      .filter((c) => c.device_id === device.id && c.outcome === 'REQUESTED')
+      .map(presentPendingCommand);
+
+    return json(response, 200, { deviceId: device.id, commands: pending });
+  }
+
+  const commandOutcomeMatch = /^\/device\/commands\/([^/]+)\/outcome$/.exec(path);
+  if (commandOutcomeMatch && method === 'POST') {
+    // What the phone did. This is the only route in the whole mock that can move a
+    // command off REQUESTED by anything other than a simulated check-in, and the
+    // admin API has no counterpart at all — see the note on `phoneAppliesCommand`.
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    const device = devices.find((d) => d.customer_key === customer.id);
+    if (!device) return error(response, 404, 'not_found', 'No phone is linked to this account.');
+
+    const id = decodeURIComponent(commandOutcomeMatch[1]);
+    // Scoped to this device on purpose: without it, a customer with a valid session
+    // could post an outcome onto a command aimed at another phone and make the panel
+    // claim that phone was released.
+    const command = deviceCommands.find(
+      (c) => c.id === id && c.device_id === device.id && c.outcome === 'REQUESTED',
+    );
+    if (!command) {
+      return error(
+        response,
+        409,
+        'refused',
+        'That command is not waiting to be answered by this phone.',
+      );
+    }
+
+    if (!['APPLIED', 'FAILED', 'REFUSED'].includes(body.outcome)) {
+      return error(response, 422, 'validation', 'An outcome must be APPLIED, FAILED or REFUSED.');
+    }
+    const note = typeof body.note === 'string' ? body.note.trim() : '';
+    if (note.length < 2) {
+      return error(response, 422, 'validation', 'A note is required.');
+    }
+
+    command.outcome = body.outcome;
+    command.outcome_note = note;
+    // The device names itself, and cannot be told to name another.
+    command.reported_by = device.id;
+    command.outcome_at = new Date().toISOString();
+    device.last_sync_time = command.outcome_at;
+
+    return json(response, 200, {
+      status: 'ok',
+      reported: true,
+      command: command.id,
+      outcome: body.outcome,
+    });
+  }
+
   if (path === '/settings' && method === 'GET') {
     const customer = requireCustomer(request, response);
     if (!customer) return undefined;
@@ -1571,6 +1638,16 @@ const DEVICE_COMMANDS = {
   UNINSTALL: { label: 'Uninstall device management', needsConfirmation: true, destructive: true },
 };
 
+/**
+ * The ceiling on a lock, in hours. Matches `DeviceCommandService::MAX_LEASE_HOURS`
+ * and `MAX_LOCK_LEASE_MS` in `src/services/deviceCheckIn.ts`.
+ *
+ * A lock is a lease: it says "locked until this moment", and at that moment the
+ * phone unlocks itself whether or not this server is running. A server outage cannot
+ * leave a customer's phone locked, because an outage *is* the expiry.
+ */
+const MAX_LOCK_LEASE_HOURS = 24;
+
 /** Every request an admin has made of a phone, and what the phone said back. */
 const deviceCommands = [];
 
@@ -1617,9 +1694,27 @@ const presentDeviceCommand = (c) => ({
   outcome: c.outcome,
   reason: c.reason,
   requestedAt: c.requested_at,
+  // Shown next to a lock, so staff can see when the phone will unlock itself
+  // without anybody asking.
+  leaseExpiresAt: c.lease_expires_at ? Date.parse(c.lease_expires_at) : null,
   outcomeAt: c.outcome_at,
   outcomeNote: c.outcome_note,
   reportedBy: c.reported_by,
+});
+
+/**
+ * A command as the phone receives it.
+ *
+ * `leaseExpiresAt` is epoch millis, because the phone compares it against its own
+ * clock, and it is null for everything except a LOCK — so a command that is not a
+ * lock cannot be misread as one that has an end date.
+ */
+const presentPendingCommand = (c) => ({
+  id: c.id,
+  action: c.action,
+  reason: c.reason,
+  requestedAt: c.requested_at,
+  leaseExpiresAt: c.lease_expires_at ? Date.parse(c.lease_expires_at) : null,
 });
 
 /**
@@ -1634,8 +1729,29 @@ const presentDeviceCommand = (c) => ({
  * Two of the four commands change what the phone *is*, so the answer has to: a
  * released or uninstalled device stops being askable, and the panel will say so on
  * the next read rather than carrying on offering buttons.
+ *
+ * There is no `WIPE` here, and there is no branch that could become one. A missed
+ * installment is a debt; erasing somebody's photographs over it is not a collection
+ * method, and the real agent has no code path that could ask for it.
  */
 function phoneAppliesCommand(device, command) {
+  if (command.action === 'LOCK') {
+    // A lock without an end is refused rather than applied, and this mock is as
+    // unwilling as the Kotlin agent to create one.
+    if (!command.lease_expires_at || Date.parse(command.lease_expires_at) <= Date.now()) {
+      command.outcome = 'FAILED';
+      command.outcome_at = new Date().toISOString();
+      command.reported_by = device.id;
+      command.outcome_note =
+        'The request did not say when the lock would end, so it was not applied. No lock is '
+        + 'ever open-ended.';
+      return;
+    }
+    device.state = 'RESTRICTED';
+  }
+  if (command.action === 'UNLOCK') {
+    device.state = 'ACTIVE';
+  }
   if (command.action === 'RELEASE') {
     device.is_managed = false;
     device.management_status = 'RELEASED';
@@ -1653,10 +1769,26 @@ function phoneAppliesCommand(device, command) {
   command.reported_by = device.id;
   command.outcome_note = command.action === 'UNINSTALL'
     ? 'The management agent was removed. This phone cannot be reached again.'
-    : 'Applied by the device policy agent on the phone.';
+    : command.action === 'LOCK'
+      ? `The screen is locked until ${command.lease_expires_at}, and then it unlocks itself.`
+      : 'Applied by the device policy agent on the phone.';
   device.last_sync_time = command.outcome_at;
 }
 
+/**
+ * Runs one device check-in: every command this phone has not answered, in order.
+ *
+ * This is the real path, and the customer app calls it through
+ * `GET /customer/device/commands`. `demoCheckin()` below is the only thing standing
+ * in for it when there is no second handset to hand.
+ */
+function deviceCheckIn(device) {
+  const pending = deviceCommands.filter(
+    (c) => c.device_id === device.id && c.outcome === 'REQUESTED',
+  );
+  for (const command of pending) phoneAppliesCommand(device, command);
+  return pending;
+}
 
 const presentAdminCustomer = (c) => ({
 id: c.id,
@@ -2001,6 +2133,18 @@ if (commandMatch && method === 'POST') {
     // has had a chance to happen.
     outcome: 'REQUESTED',
     reason: String(body.reason),
+    // A lock is a lease, recorded now rather than invented when the phone fetches
+    // it — so "locked until" is a thing staff can read off the screen they pressed
+    // it on. Capped at 24h, matching `DeviceCommandService::MAX_LEASE_HOURS`.
+    lease_expires_at: body.action === 'LOCK'
+      ? new Date(
+        Date.now()
+          + Math.min(
+            Math.max(1, Number(body.leaseHours) || MAX_LOCK_LEASE_HOURS),
+            MAX_LOCK_LEASE_HOURS,
+          ) * 60 * 60 * 1000,
+      ).toISOString()
+      : null,
     requested_by: claims.email,
     requested_at: new Date().toISOString(),
     outcome_at: null,
@@ -2009,10 +2153,10 @@ if (commandMatch && method === 'POST') {
   };
   deviceCommands.push(command);
 
-  // Then the phone answers, on its own terms. In production this is the device's
-  // next check-in, which is why a press is a request: a phone that is switched off
-  // has not unlocked. The mock is standing in for a phone that is checked in.
-  phoneAppliesCommand(device, command);
+  // NOT applied here. The press is a request, and the phone answers it on its own
+  // next check-in — which is why a phone that is switched off does not unlock
+  // because a button was pressed. `deviceCheckIn()` is that answer, and the customer
+  // app reaches it through `GET /customer/device/commands`.
 
   audit(claims.email, 'device.command', device.id, String(body.reason), {
     action: body.action,
@@ -2026,8 +2170,38 @@ if (commandMatch && method === 'POST') {
     status: 'ok',
     message: spec.destructive
       ? 'Requested, and it cannot be taken back from here. The phone applies this on its next check-in and reports back when it has.'
-      : 'Requested. The phone applies this on its next check-in, and reports back when it has.',
+      : body.action === 'LOCK'
+        ? 'Requested. The phone locks on its next check-in and unlocks itself when this authorisation ends, whether or not we are reachable.'
+        : 'Requested. The phone applies this on its next check-in, and reports back when it has.',
     command: presentDeviceCommand(command),
+  });
+}
+
+const demoCheckinMatch = /^\/devices\/([^/]+)\/demo-checkin$/.exec(path);
+if (demoCheckinMatch && method === 'POST') {
+  // MOCK-ONLY, and deliberately awkward to mistake for the real thing.
+  //
+  // The real backend has no route like this, because a real phone applies its own
+  // commands on its own check-in. This exists so a panel demo can complete the loop
+  // without a second handset — press "lock", then press this, and the phone answers.
+  // It is named `demo-checkin`, it is audited as a simulation, and the panel labels
+  // it as one.
+  const device = devices.find((d) => d.id === decodeURIComponent(demoCheckinMatch[1]));
+  if (!device) return error(response, 404, 'not_found', 'No such device.');
+
+  const answered = deviceCheckIn(device);
+
+  audit(claims.email, 'device.command.demo-checkin', device.id, 'Simulated a phone check-in', {
+    answered: answered.length,
+  });
+
+  return json(response, 200, {
+    status: 'ok',
+    simulated: true,
+    message: answered.length === 0
+      ? 'That phone had nothing waiting to be answered.'
+      : `Simulated a check-in. The phone answered ${answered.length} request(s).`,
+    commands: answered.map(presentDeviceCommand),
   });
 }
 

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Shown by Android itself, on the system screen that explains what this app
+      will be allowed to do if the customer grants device-admin rights. It has to be
+      plain and it has to be true, because this is the one piece of wording Android
+      shows the customer that this project does not get to write in its own voice.
+    -->
+    <string name="device_admin_label">Srabon Telecom device management</string>
+    <string name="device_admin_description">Allows Srabon Telecom to lock this phone\'s screen while an installment plan is overdue. It cannot erase any of your data, and it cannot be used to lock this phone once your plan is settled.</string>
+</resources>

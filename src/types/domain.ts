@@ -145,6 +145,34 @@ export interface DeviceReport {
   enrollmentStatus: EnrollmentStatus;
 }
 
+/** The four things staff may ask a phone to do. Matches the server's own list. */
+export type DeviceCommandAction = 'LOCK' | 'UNLOCK' | 'RELEASE' | 'UNINSTALL';
+
+/** Only the phone may write these, and only about a command issued to it. */
+export type DeviceCommandOutcome = 'REQUESTED' | 'APPLIED' | 'FAILED' | 'REFUSED';
+
+/**
+ * A command the server has issued to this phone and is waiting on.
+ *
+ * A **request**, not an instruction. `reason` is the staff member's own words and is
+ * carried to the phone so the customer can be told why their phone did what it just
+ * did — a restriction nobody can explain is indistinguishable from a theft, and this
+ * app is not going to be that.
+ *
+ * `leaseExpiresAt` is present only for `LOCK`, and it is the single most important
+ * field in this type: it is when the phone unlocks itself, on its own, with no server
+ * involved. A `LOCK` without a lease is not a command this app will apply, so a
+ * server that cannot say when a lock ends cannot cause one.
+ */
+export interface PendingDeviceCommand {
+  id: string;
+  action: DeviceCommandAction;
+  reason: string | null;
+  requestedAt: string | null;
+  /** Epoch millis. Present for `LOCK` only. */
+  leaseExpiresAt: number | null;
+}
+
 export interface Installment {
   id: string;
   contractId: string;

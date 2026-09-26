@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The only permission this module declares, and the one that makes everything
+      else here possible: it is what lets Android ask a user to grant this app
+      device-admin rights. It grants nothing by itself — `SrabonDevicePolicyModule`
+      refuses every action unless `isDeviceOwnerApp()` is true, and that status is
+      only ever granted by an enterprise DPC at provisioning time.
+
+      No USE_BIOMETRIC, no SYSTEM_ALERT_WINDOW, no PACKAGE_USAGE_STATS, no
+      BIND_ACCESSIBILITY_SERVICE, no BIND_NOTIFICATION_LISTENER_SERVICE. Those are
+      the permissions that turn a device manager into a surveillance tool, and a
+      financing app has no legitimate use for any of them.
+    -->
+    <uses-permission android:name="android.permission.BIND_DEVICE_ADMIN" />
+
+    <application>
+
+        <!--
+          The provisioning handshake.
+
+          When an enterprise DPC (or a QR-code / zero-touch enrolment) provisions
+          this phone as fully managed, Android sends this intent naming the package
+          it wants to be device owner. The activity below checks that the name is
+          ours and then gets out of the way: the system enables the admin itself,
+          and there is deliberately **no** screen here that asks the customer to
+          agree to anything, because the consent for that already happened in the
+          app, in writing, with a signature and a version (see
+          `app/device/enrollment.tsx`).
+
+          If the intent names some other package, this activity finishes without
+          touching anything. It does not decline, warn, or interfere with a
+          provisioning that has nothing to do with us.
+        -->
+        <activity
+            android:name="io.paymently.srabontelecom.devicemanagement.SrabonProvisioningActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+
+            <intent-filter>
+                <action android:name="android.app.action.PROVISIONING_DEVICE_ADMIN" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          The policy agent itself.
+
+          `android:exported="true"` is required for the system to deliver
+          `onEnabled` during provisioning. It is not a hole: only the system and
+          the device owner can drive a `DeviceAdminReceiver`, and the only thing
+          this receiver does is record what Android did to it and then get out of
+          the way. All policy decisions are made in `SrabonDevicePolicyModule` and
+          are made by the server.
+        -->
+        <receiver
+            android:name="io.paymently.srabontelecom.devicemanagement.SrabonDeviceAdminReceiver"
+            android:description="@string/device_admin_description"
+            android:exported="true"
+            android:label="@string/device_admin_label"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLED" />
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

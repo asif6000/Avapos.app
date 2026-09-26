@@ -17,6 +17,7 @@
 --   requested_at             when a member of staff pressed the button
 --   outcome_at               when the PHONE said what happened
 --   reported_by              which device agent reported it
+--   lease_expires_at         when a LOCK stops being a lock, on its own
 --
 -- A row is born `REQUESTED` and only the device moves it. That is not a schema
 -- convention, it is the reason the panel can be trusted: an admin pressing "lock"
@@ -29,6 +30,18 @@
 -- So there is no insert/update policy below for anybody, and the admin API has no
 -- route that sets an outcome. `DeviceCommandService::reportOutcome()` is called by
 -- the device's own check-in and by nothing else.
+--
+-- `lease_expires_at` is the second half of the same promise, and it is the more
+-- important of the two. A LOCK is a **lease**, not a switch: it says "locked until
+-- this moment", and at that moment the phone unlocks itself whether or not this
+-- database is reachable, whether or not the company is still trading, and without
+-- anybody asking. A server outage therefore cannot leave a customer's phone locked,
+-- because an outage *is* the expiry.
+--
+-- The constraint at the bottom enforces it: a LOCK with no expiry is not a row this
+-- table will hold. A schema that permitted an open-ended lock would permit the exact
+-- failure this column exists to make impossible, and a constraint is the only place
+-- that can say so to somebody who never reads this comment.
 --
 -- `device_locations` is the last position a phone reported. A read of it is
 -- written to `admin_audit` by `AdminReadController::deviceLocation()`: reading a
@@ -54,6 +67,9 @@ create table if not exists public.device_commands (
   action        text        not null,
   outcome       text        not null default 'REQUESTED',
   reason        text,
+  -- When a LOCK stops being a lock. NULL for every other action, and required for
+  -- LOCK by the constraint at the bottom of this table.
+  lease_expires_at timestamptz,
   outcome_note  text,
   reported_by   text,
   requested_at  timestamptz not null default now(),
@@ -71,6 +87,17 @@ create table if not exists public.device_commands (
   constraint device_commands_reported_check check (
     outcome = 'REQUESTED'
     or (outcome_at is not null and reported_by is not null)
+  ),
+
+  -- A lock has to say when it ends.
+  --
+  -- This is the constraint that matters most in the file. It makes an open-ended
+  -- lock unrepresentable, rather than merely discouraged: there is no value this
+  -- table will accept for a LOCK that is not a lease, so no bug anywhere above it
+  -- can produce one. The phone enforces the same ceiling on arrival
+  -- (`MAX_LOCK_LEASE_MS`), so the guarantee does not rest on this file alone.
+  constraint device_commands_lease_check check (
+    action <> 'LOCK' or lease_expires_at is not null
   )
 );
 

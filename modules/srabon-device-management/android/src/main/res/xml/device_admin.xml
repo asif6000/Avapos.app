@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Declared to Android as: "the only policy this app intends to use is force-lock."
+
+  Android shows this file's contents on the system screen that explains what a
+  device admin can do, and the list here is deliberately one line long. Declaring
+  `wipe-data` or `reset-password` would let this app be granted a capability the
+  business does not use and does not want: nothing in this module erases a
+  customer's photos, messages or files, ever, for a missed payment.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

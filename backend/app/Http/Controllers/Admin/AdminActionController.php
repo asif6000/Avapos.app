@@ -147,6 +147,10 @@ class AdminActionController extends Controller
             'action' => ['required', Rule::in(array_keys(DeviceCommandService::COMMANDS))],
             'reason' => ['required', 'string', 'min:4', 'max:280'],
             'confirmation' => ['sometimes', 'nullable', 'string', 'max:64'],
+            // How long a LOCK is authorised for. Optional, capped server-side, and
+            // only meaningful for LOCK — `issue()` ignores it for everything else
+            // rather than storing a misleading expiry on a command that has none.
+            'leaseHours' => ['sometimes', 'integer', 'min:1', 'max:24'],
         ]);
 
         $device = Device::query()->where('id', $id)->first();
@@ -156,7 +160,13 @@ class AdminActionController extends Controller
         }
 
         $result = (new DeviceCommandService())
-            ->issue($device, $data['action'], $data['reason'], $data['confirmation'] ?? null);
+            ->issue(
+                $device,
+                $data['action'],
+                $data['reason'],
+                $data['confirmation'] ?? null,
+                (int) ($data['leaseHours'] ?? DeviceCommandService::MAX_LEASE_HOURS),
+            );
 
         if (($result['status'] ?? null) !== 'ok') {
             $this->audit($request, 'device.command.refused', $id, $data['reason'], [

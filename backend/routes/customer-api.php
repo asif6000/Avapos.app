@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\CustomerDeviceController;
 use App\Http\Controllers\Api\CustomerPaymentController;
 use App\Http\Controllers\Api\GatewayCallbackController;
 use App\Http\Middleware\VerifySupabaseJwt;
@@ -47,6 +48,21 @@ Route::prefix('customer')->group(function () {
         Route::get('payments', [CustomerPaymentController::class, 'index']);
         Route::post('payments/create', [CustomerPaymentController::class, 'store']);
         Route::get('payments/{id}/status', [CustomerPaymentController::class, 'status']);
+
+        // ---- Device commands -------------------------------------------------
+        // The phone asking what it has been told to do, and then saying what it did.
+        //
+        // These two routes are the only caller of
+        // `DeviceCommandService::reportOutcome()`. Without them a command recorded in
+        // the panel would sit at REQUESTED for ever, because nothing would ever
+        // carry it out — and "locked" in that screen would be a thing somebody
+        // decided rather than a thing that happened.
+        //
+        // Neither route accepts a device id. The device is resolved from the session,
+        // and `reportOutcome()` re-checks that the command belongs to it, so a
+        // customer cannot file an outcome against somebody else's phone.
+        Route::get('device/commands', [CustomerDeviceController::class, 'commands']);
+        Route::post('device/commands/{id}/outcome', [CustomerDeviceController::class, 'commandOutcome']);
     });
 });
 

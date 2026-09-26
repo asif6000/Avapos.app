@@ -15,22 +15,35 @@ import expo.modules.kotlin.modules.ModuleDefinition
  *   - whether a profile owner / device owner exists on the device at all
  *   - non-sensitive build and identity fields used to match a phone to a contract
  *
- * WHAT THIS MODULE DELIBERATELY DOES NOT DO
- *   - no lockNow(), no wipeData(), no resetPassword(), no setPasswordQuality()
- *   - no DeviceAdminReceiver, no BIND_DEVICE_ADMIN permission
+ * It grants nothing and enforces nothing. Every action that can change what a phone
+ * is lives in [SrabonDevicePolicyModule], behind a device-owner guard, and is driven
+ * by a command the backend issued.
+ *
+ * NOTE ON THE PAIR OF THEM
+ *   This class and `SrabonDevicePolicyModule` are deliberately separate. Asking
+ *   "what does Android say about this phone?" and changing what the phone does are
+ *   different questions with different risk, and merging them is how a status reporter
+ *   quietly grows a `wipeData`. Keeping the reader free of mutators means this file
+ *   can be read top to bottom to answer "what can this app learn about a customer?" —
+ *   the answer being: what Android already shows any app.
+ *
+ * WHAT NEITHER MODULE DOES
+ *   - no wipeData, no wipeDataAndEscape, no resetPassword from a server-supplied value
  *   - no root, no su, no shell, no hidden API, no reflection into internals
  *   - no AccessibilityService, no NotificationListenerService
+ *   - no camera disable, no app suspension, no app inventory, no location
  *
  * Android grants device owner / profile owner status only to an app that an
  * enterprise DPC (or a test harness provisioning a fully-managed device) has
  * provisioned as such. A customer app installed from a store can never hold that
- * status, and this module does not attempt to acquire it. On a retail device
- * `isDeviceManaged()` is simply false and the JavaScript layer reports
- * NOT_ENROLLED / UNSUPPORTED, which is a correct answer.
+ * status. On such a phone `isDeviceManaged()` is simply false and the JavaScript
+ * layer reports NOT_ENROLLED / UNSUPPORTED, which is a correct answer and not an
+ * error to work around.
  *
- * Enforcement decisions (restrict, unlock, suspend) are made by the backend,
- * which verifies payment state server-side. This module never holds or applies
- * device state of its own.
+ * Enforcement decisions (restrict, unlock, release) are made by the backend, which
+ * verifies payment state server-side. Neither module holds or applies device state of
+ * its own, and the local restriction it records is bounded by a lease that expires
+ * without the server — see [SrabonDevicePolicy].
  */
 class SrabonDeviceManagementModule : Module() {
 
@@ -85,14 +98,25 @@ class SrabonDeviceManagementModule : Module() {
     }
 
     /**
-     * `requestDeviceAdminEnable` is intentionally inert. The module does not
-     * register an admin receiver, so there is nothing to enable; it reports
-     * `supported=false` rather than pretending a flow exists.
+     * Whether a device admin is registered, now that one is.
+     *
+     * This used to be permanently inert, and had to be: there was no receiver, so
+     * there was nothing to enable and reporting `supported: false` was the only
+     * honest answer. It can no longer be inert, because
+     * `SrabonDeviceAdminReceiver` exists.
+     *
+     * What it still will not do is *ask*. There is no code path here that opens a
+     * system dialog to grant device-admin rights, because a customer must not be
+     * able to hand an app this much power by tapping through a screen that looks
+     * like it is part of the app. Device-owner status is granted by the store's
+     * provisioning, and the only thing this reports is whether that happened.
      */
     AsyncFunction("requestDeviceAdminEnable") {
       mapOf(
-        "supported" to false,
-        "enabled" to false
+        "supported" to true,
+        "enabled" to devicePolicyManager.isAdminActive(
+          android.content.ComponentName(context, SrabonDeviceAdminReceiver::class.java),
+        )
       )
     }
 

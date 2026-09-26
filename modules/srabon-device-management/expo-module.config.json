@@ -1,6 +1,9 @@
 {
   "platforms": ["android"],
   "android": {
-    "modules": ["io.paymently.srabontelecom.devicemanagement.SrabonDeviceManagementModule"]
+    "modules": [
+      "io.paymently.srabontelecom.devicemanagement.SrabonDeviceManagementModule",
+      "io.paymently.srabontelecom.devicemanagement.SrabonDevicePolicyModule"
+    ]
   }
 }

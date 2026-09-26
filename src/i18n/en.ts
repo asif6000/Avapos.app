@@ -88,6 +88,30 @@ export const en = {
     restoredBody: 'Your payment was verified and access has been restored.',
     notManaged: 'This device is not under enterprise device management.',
     agreementRequired: 'Device management agreement not accepted yet.',
+    // -- Device commands, and the guarantees attached to them ------------
+    checkNow: 'Ask the shop what this phone should do',
+    checkingIn: 'Checking…',
+    /**
+     * The single most reassuring sentence this screen can show, and the one the
+     * design exists to make true: a lock is a lease, and it ends by itself.
+     */
+    unlocksItself: 'This phone unlocks itself at {time} — you do not have to ask anybody.',
+    leaseEnded: 'The lock on this phone had ended, so it has been released.',
+    noEnforcement:
+      'This phone is not under device management, so the shop cannot lock it. Nothing on it was changed.',
+    buildCannotEnforce: 'This version of the app cannot manage the phone. Nothing was changed.',
+    commandNothingToDo: 'Nothing was asked of this phone.',
+    commandApplied: 'The shop asked this phone to {action}, and it did.',
+    commandFailed: 'The shop asked this phone to {action}, and it could not. The shop has been told.',
+    commandRefused: 'The shop asked this phone to {action}, and this app did not do it. The shop has been told why.',
+    commandUnreachable: 'The shop could not be reached, so nothing on this phone was changed.',
+    actionLock: 'lock the screen',
+    actionUnlock: 'unlock',
+    actionRelease: 'be released from management',
+    actionUninstall: 'remove its management',
+    screenLockedNow: 'The screen is locked right now.',
+    screenNotSecure:
+      "This phone has no screen lock of its own, so a lock request has little effect. Set one in Android's own settings to make it mean something.",
   },
   enrollment: {
     title: 'Device management enrollment',

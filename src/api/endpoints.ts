@@ -13,12 +13,14 @@ import type {
   Customer,
   DashboardSummary,
   Device,
+  DeviceCommandOutcome,
   DeviceReport,
   DeviceStatus,
   Installment,
   InstallmentPlan,
   Payment,
   PaymentSession,
+  PendingDeviceCommand,
   SupportTicket,
 } from '@/types/domain';
 
@@ -85,6 +87,28 @@ export function createEndpoints(client: ApiClient) {
        * a response is never the phone grading itself.
        */
       sync: (report: DeviceReport) => client.post<DeviceStatus>('/devices/me/sync', { report }),
+
+      /**
+       * The commands the server has issued to **this** phone and is waiting on.
+       *
+       * No device id is sent. The server scopes the list by the caller's session, so
+       * a phone cannot ask what it has been told to do about somebody else's handset,
+       * and a modified request cannot widen the list — the commands in it were written
+       * by staff with a reason attached, and this call only reads them.
+       */
+      pendingCommands: () => client.get<PendingDeviceCommand[]>('/device/commands'),
+
+      /**
+       * What this phone actually did about a command.
+       *
+       * The only caller of the server's `reportOutcome`. It is the reason the panel's
+       * "locked" is a thing that happened rather than a button somebody pressed, and
+       * it is why the outcome may only be an `APPLIED` / `FAILED` / `REFUSED` the
+       * phone chose, with a note in its own words. There is no way to write an
+       * outcome for a command that was not issued to this device.
+       */
+      reportCommandOutcome: (id: string, payload: { outcome: DeviceCommandOutcome; note: string }) =>
+        client.post<{ reported: true }>(`/device/commands/${encodeURIComponent(id)}/outcome`, payload),
     },
 
     agreements: {

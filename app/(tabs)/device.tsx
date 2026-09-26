@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
@@ -13,6 +14,7 @@ import { EmptyState, ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { useDevice, useDeviceStatus, useSyncDevice } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
+import { deviceManagementService } from '@/services/deviceManagement';
 import { useAuthStore } from '@/store/authStore';
 import { RESTRICTED_STATES } from '@/types/domain';
 import { spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
@@ -33,6 +35,28 @@ export default function DeviceScreen() {
   const deviceQuery = useDevice();
   const statusQuery = useDeviceStatus();
   const sync = useSyncDevice();
+
+  const [checkingIn, setCheckingIn] = useState(false);
+
+  /**
+   * One check-in, then re-read.
+   *
+   * The re-read matters: a check-in can change what the server believes, so leaving
+   * the screen showing the state from before it would be showing a stale answer to a
+   * question the customer just asked again.
+   */
+  const onCheckIn = useCallback(async () => {
+    setCheckingIn(true);
+    try {
+      await deviceManagementService.checkIn();
+      await Promise.all([deviceQuery.refetch(), statusQuery.refetch()]);
+    } catch {
+      // `checkIn()` reports its own failures rather than throwing, so reaching here
+      // means the re-read failed. The screen's own error state covers that.
+    } finally {
+      setCheckingIn(false);
+    }
+  }, [deviceQuery, statusQuery]);
 
   const device = deviceQuery.data;
   const status = statusQuery.data;
@@ -196,6 +220,23 @@ export default function DeviceScreen() {
             testID="device-sync"
             onPress={() => void sync.mutateAsync().catch(() => undefined)}
           />
+
+          {/*
+            "Re-sync" only tells the server what this phone says about itself. This
+            is the other direction: it asks what the server wants done, does it, and
+            reports back. They are separate buttons because they answer separate
+            questions, and merging them would hide which one is talking.
+          */}
+          {device?.enrollmentStatus === 'ENROLLED' ? (
+            <AppButton
+              block
+              variant="text"
+              label={t('device.checkNow')}
+              loading={checkingIn}
+              testID="device-check-in"
+              onPress={() => void onCheckIn()}
+            />
+          ) : null}
         </ScrollView>
       )}
     </View>

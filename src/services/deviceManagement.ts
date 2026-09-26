@@ -3,11 +3,14 @@ import * as Device from 'expo-device';
 
 import { endpoints } from '@/api/endpoints';
 import {
+  hasEnforcementCapability,
   hasNativeDeviceManagement,
   nativeDeviceManagement,
+  nativeDevicePolicy,
   type NativeEnrollmentStatus,
   type NativeManagementStatus,
 } from '@/native/deviceManagement';
+import { deviceCheckIn, type CheckInResult } from '@/services/deviceCheckIn';
 import type {
   DeviceReport,
   DeviceState,
@@ -44,13 +47,16 @@ const UNSUPPORTED: DeviceManagementSnapshot['managementStatus'] = 'UNSUPPORTED';
 /**
  * DeviceManagementService
  *
- * Owns every question about the local device's management capability. Two
- * rules are enforced here:
+ * Owns every question about the local device's management capability. Three rules
+ * are enforced here:
  *
- * 1. Local inspection may only ever report capability. It can never grant,
- *    restrict, unlock or wipe anything.
+ * 1. Local inspection may only ever report capability. Granting, restricting and
+ *    releasing are in `deviceCheckIn`, behind a device-owner guard, and only ever on
+ *    a command the server issued.
  * 2. `deviceState` is whatever the backend last reported. A stale or missing
  *    server value is surfaced as `null`, never guessed.
+ * 3. Capability is never overstated. {@link canEnforce} needs the module *and* the
+ *    device-owner status, and anything less reports `false`.
  */
 class DeviceManagementServiceImpl {
   async getIdentity(): Promise<DeviceIdentity> {
@@ -218,6 +224,35 @@ class DeviceManagementServiceImpl {
       lastSyncedAt: status?.lastSyncedAt ?? null,
       serverTime: status?.serverTime ?? null,
     };
+  }
+
+  /**
+   * Whether this build can actually enforce anything on this phone.
+   *
+   * Both things have to be true: the policy module has to be in the build, and
+   * Android has to say this app is the device owner. A development build on a retail
+   * phone has the first and not the second, and that combination has to report
+   * `false` — otherwise a screen would promise a restriction the phone is not
+   * actually under, which is the one thing this feature must never do.
+   */
+  async canEnforce(): Promise<boolean> {
+    if (!hasEnforcementCapability()) return false;
+    try {
+      return await nativeDevicePolicy!.isDeviceOwner();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Runs one check-in: release an expired authorisation, then apply whatever the
+   * server has asked of this phone and report what happened.
+   *
+   * Thin on purpose. All of the judgement is in {@link deviceCheckIn}, and this exists
+   * so the screens have one call to make and one shape to render.
+   */
+  async checkIn(): Promise<CheckInResult> {
+    return deviceCheckIn.run();
   }
 }
 
