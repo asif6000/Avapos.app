@@ -16,6 +16,7 @@
 
 import express, { type NextFunction, type Request, type Response } from 'express';
 
+import { adminRouter } from './adminRouter.js';
 import { customerRouter } from './customerRouter.js';
 import { config } from './supabase.js';
 
@@ -63,6 +64,11 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/customer', customerRouter());
+
+// The panel already posts to `/admin/api/*` (`admin/src/lib/api.ts:128`), so this
+// is the prefix it expects. The gateway callback is NOT here and never will be:
+// it belongs to the payment flow, which this read-mostly service does not own.
+app.use('/admin/api', adminRouter());
 
 app.use((req: Request, res: Response) => {
   res.status(404).json({

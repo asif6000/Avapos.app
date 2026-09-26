@@ -97,13 +97,33 @@ function toCustomer(row: ProfileRow): CustomerRecord {
   };
 }
 
+/**
+ * Claim checks, after the signature has already verified.
+ *
+ * THE `aud` TRAP — THIS IS WHY THE DEPLOYED SERVICE ANSWERED 401
+ *
+ * Supabase's GoTrue issues an access token with
+ *
+ *   iss = https://<ref>.supabase.co/auth/v1
+ *   aud = "authenticated"          <-- a literal, not the issuer
+ *
+ * `aud` is the token's *audience class*, not a second copy of the issuer. The
+ * deployed `VerifySupabaseJwt` asserted `aud === issuer`, so every valid session
+ * was refused with the same generic "Unauthorized request" as a forged one. That
+ * is measured, not theorised: the token used to find it had a signature that
+ * verified against this project's JWKS and a `sub` that matched
+ * `profiles.auth_uid`, and was still refused.
+ *
+ * `iss` is the check that matters for cross-project replay, and it stays strict.
+ * `aud` is checked against what Supabase actually issues, which is also what
+ * keeps an `anon` token from being read as an identity.
+ */
 function checkClaims(payload: JWTPayload, projectRef: string): AuthFailure | null {
   const issuer = `https://${projectRef}.supabase.co/auth/v1`;
 
   if (payload.iss !== issuer) return 'wrong_project';
-  if (payload.aud !== issuer) return 'wrong_project';
-  // An `anon` token is a public key, not an identity. Refusing it here is what
-  // stops a signed-in-but-anonymous request from resolving to a customer.
+  // An `anon` token is a public key, not an identity.
+  if (payload.aud !== 'authenticated') return 'not_authenticated';
   if (payload.role !== 'authenticated') return 'not_authenticated';
   if (typeof payload.sub !== 'string' || payload.sub.length === 0) return 'bad_token';
   if (typeof payload.exp !== 'number' || payload.exp * 1000 <= Date.now()) return 'bad_token';

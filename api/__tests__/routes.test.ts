@@ -196,7 +196,10 @@ async function token(claims: Record<string, unknown> = {}, opts: { expiresIn?: s
     .setProtectedHeader({ alg: 'ES256', kid: 'test-es256' })
     .setSubject(sub ?? 'auth-user-1')
     .setIssuer(issuer)
-    .setAudience(issuer)
+    // `aud` is the literal "authenticated", NOT the issuer. See the `aud` trap
+    // note in src/auth.ts — this is the value GoTrue really puts in the token,
+    // and it is the whole reason the deployed service refused every session.
+    .setAudience('authenticated')
     .setIssuedAt()
     .setExpirationTime(opts.expiresIn ?? '1h')
     .sign(keyPair.privateKey);
@@ -224,7 +227,7 @@ describe('a real ES256 session is accepted', () => {
       .setProtectedHeader({ alg: 'ES256', kid: 'test-es256' })
       .setSubject('auth-user-1')
       .setIssuer('https://someone-else.supabase.co/auth/v1')
-      .setAudience('https://someone-else.supabase.co/auth/v1')
+      .setAudience('authenticated')
       .setIssuedAt()
       .setExpirationTime('1h')
       .sign(keyPair.privateKey);
@@ -245,7 +248,7 @@ describe('a real ES256 session is accepted', () => {
       .setProtectedHeader({ alg: 'ES256', kid: 'test-es256' })
       .setSubject('auth-user-1')
       .setIssuer(issuer)
-      .setAudience(issuer)
+      .setAudience('authenticated')
       .setIssuedAt()
       .setExpirationTime('1h')
       .sign(other.privateKey);
@@ -255,6 +258,45 @@ describe('a real ES256 session is accepted', () => {
 
   test('a missing bearer is refused', async () => {
     assert.equal((await get('/')).status, 401);
+  });
+
+  test('REGRESSION: aud is "authenticated", and is not compared to the issuer', async () => {
+    // The deployed service asserted `aud === issuer`. Supabase issues
+    // `aud: "authenticated"`, so that assertion refused every valid session with
+    // the same generic 401 as a forged token. This token is byte-for-byte a real
+    // one apart from the claim under test, and it must be served.
+    stub.rows = { profiles: [CUSTOMER] };
+
+    const real = await new SignJWT({ role: 'authenticated', email: CUSTOMER.email })
+      .setProtectedHeader({ alg: 'ES256', kid: 'test-es256' })
+      .setSubject('auth-user-1')
+      .setIssuer(issuer)
+      .setAudience('authenticated')
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(keyPair.privateKey);
+
+    const claims = JSON.parse(Buffer.from(real.split('.')[1], 'base64url').toString());
+    assert.equal(claims.aud, 'authenticated');
+    assert.notEqual(claims.aud, issuer);
+
+    const { status, body } = await get('/', real);
+    assert.equal(status, 200, JSON.stringify(body));
+  });
+
+  test('an anon-audience token is refused, and refused as such', async () => {
+    const anonAudience = await new SignJWT({ role: 'anon' })
+      .setProtectedHeader({ alg: 'ES256', kid: 'test-es256' })
+      .setSubject('auth-user-1')
+      .setIssuer(issuer)
+      .setAudience('anon')
+      .setIssuedAt()
+      .setExpirationTime('1h')
+      .sign(keyPair.privateKey);
+
+    const { status, body } = await get('/', anonAudience);
+    assert.equal(status, 401);
+    assert.equal(body.code, 'not_authenticated');
   });
 });
 

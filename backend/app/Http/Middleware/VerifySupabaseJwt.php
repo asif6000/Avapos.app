@@ -99,12 +99,26 @@ class VerifySupabaseJwt
 
         $projectRef = config('supabase.project_ref');
         $expectedIssuer = "https://{$projectRef}.supabase.co/auth/v1";
-        $expectedAudience = $expectedIssuer;
 
         if (($claims['iss'] ?? null) !== $expectedIssuer) {
             return null;
         }
-        if (($claims['aud'] ?? null) !== $expectedAudience) {
+
+        // `aud` IS NOT THE ISSUER. Supabase's GoTrue issues an access token with
+        //
+        //   iss = https://<ref>.supabase.co/auth/v1
+        //   aud = "authenticated"        <- a literal audience class
+        //
+        // so comparing `aud` to the issuer refuses every valid session. That is
+        // not a theory: a token whose signature verified against this project's
+        // JWKS and whose `sub` matched `profiles.auth_uid` was still answered
+        // with 401 "Unauthorized request", which is indistinguishable from a
+        // forged token and from a customer that does not exist.
+        //
+        // `iss` above is the check that prevents cross-project replay, and it is
+        // strict. `aud` is checked against what Supabase actually issues, which
+        // is also what keeps an `anon` token from being read as an identity.
+        if (($claims['aud'] ?? null) !== 'authenticated') {
             return null;
         }
         if (($claims['role'] ?? null) !== 'authenticated') {
