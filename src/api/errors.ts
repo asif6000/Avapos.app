@@ -5,6 +5,7 @@ export type ErrorKind =
   | 'unauthorized'
   | 'forbidden'
   | 'not_found'
+  | 'unavailable'
   | 'validation'
   | 'conflict'
   | 'rate_limit'
@@ -68,6 +69,7 @@ const DEFAULT_MESSAGES: Record<ErrorKind, string> = {
   unauthorized: 'Your session has expired. Please sign in again.',
   forbidden: "You don't have access to this information.",
   not_found: 'The requested information was not found.',
+  unavailable: 'This part of your account is not available right now. Please try again shortly.',
   validation: 'Please check the highlighted fields and try again.',
   conflict: 'This action conflicts with the current state. Please refresh.',
   rate_limit: 'Too many requests. Please wait a moment and try again.',
@@ -137,6 +139,49 @@ export function isSafeDetail(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed.length === 0 || trimmed.length > 240) return false;
   return !UNSAFE_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * Does this 404 body name a *record* that is missing?
+ *
+ * A 404 means two quite different things, and conflating them is what produced
+ * "The requested information was not found." on a screen that had never found
+ * any information to begin with:
+ *
+ * - the route is not deployed on the server that answered. Laravel's router
+ *   replies `{"message":"Not Found"}` and never looks at a row.
+ * - the route ran, and told us a particular record does not exist. That body
+ *   names something — "No such contract", "Installment not found".
+ *
+ * Only the second one is about the customer's data, so only the second one may
+ * say the customer's information was not found. The test is whether the body
+ * carries a human-written detail at all: `Not Found` is the router's vocabulary
+ * (`isCustomerFacingDetail` rejects it), so a body made only of it describes the
+ * *server*, never a customer's record.
+ */
+export function isRecordNotFound(payload: unknown): boolean {
+  if (typeof payload === 'string') return isCustomerFacingDetail(payload);
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    return [...SAFE_DETAIL_KEYS].some(
+      (key) => typeof record[key] === 'string' && isCustomerFacingDetail(record[key] as string),
+    );
+  }
+  return false;
+}
+
+/**
+ * `statusToKind` refined by the body.
+ *
+ * A 404 with nothing in it becomes `unavailable` — a statement about this
+ * server, not about the customer — and everything else is left exactly as the
+ * status says it is. `statusToKind` stays a pure status table so it remains
+ * meaningful on its own.
+ */
+export function refineKind(status: number, payload: unknown): ErrorKind {
+  const kind = statusToKind(status);
+  if (kind !== 'not_found') return kind;
+  return isRecordNotFound(payload) ? 'not_found' : 'unavailable';
 }
 
 export function extractFieldErrors(payload: unknown): Record<string, string[]> {

@@ -13,20 +13,45 @@ import { DashboardSkeleton } from '@/components/Skeleton';
 import { deviceStateBadge } from '@/components/StatusBadge';
 import { ErrorState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
-import { useDashboard } from '@/hooks/queries';
+import { isRenderableState } from '@/api/dashboardState';
+import { defaultMessageFor, type ApiError } from '@/api/errors';
+import { useHomeSummary } from '@/hooks/useHomeSummary';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
 import { useNetworkStore } from '@/store/networkStore';
 import { CONTENT_MAX_WIDTH, radius, spacing, useLayout } from '@/theme/layout';
 import { deviceStateLabel, formatCurrency, formatDate, percentOf } from '@/utils/format';
 
+/**
+ * Home.
+ *
+ * SEVEN STATES, DECIDED IN ONE PLACE
+ *
+ * `useHomeSummary` works out which of them this is — loading, a network failure,
+ * a dead session, a session the server cannot match to a customer, a customer
+ * with no plan, a customer with no phone, or the ordinary full account — and this
+ * file only decides what each one looks like. That split exists because the seven
+ * are genuinely different facts, and the screen used to collapse all of them into
+ * one full-screen error with one sentence under it.
+ *
+ * The sentence was "The requested information was not found.", on a screen whose
+ * only request was `GET /customer/dashboard` — a route that answers 404 on any
+ * server it has not been deployed to. Nothing about that is the customer's
+ * information, and saying it was made a phone whose account was perfectly intact
+ * look broken.
+ *
+ * A customer with a real account and no installment or no phone is NOT an error
+ * at all, and never renders as one: the screen is the whole app's front door, and
+ * an empty account is a normal state for an account to be in the day it is
+ * created.
+ */
 export default function DashboardScreen() {
   const { t, language } = useTranslation();
   const theme = useTheme();
   const signOut = useAuthStore((state) => state.signOut);
   const router = useRouter();
   const online = useNetworkStore((state) => state.online);
-  const { data, isLoading, isRefetching, error, refetch } = useDashboard();
+  const { data, state, isRefetching, error, refetch } = useHomeSummary();
 
   const { gutter } = useLayout();
   const profile = data?.customer;
@@ -34,18 +59,26 @@ export default function DashboardScreen() {
   const plan = data?.plan;
   const next = data?.nextInstallment;
 
-  if (isLoading) {
+  // The header is rendered in every state, including the failing ones. It used to
+  // be dropped along with the content, which meant a broken Home removed the only
+  // route to Settings — and Sign out lives there.
+  const header = (
+    <AppHeader
+      title={t('common.appName')}
+      back={false}
+      action={{
+        icon: 'bell-outline',
+        label: t('notifications.title'),
+        badge: data?.unreadNotificationCount,
+        onPress: () => router.push('/notifications'),
+      }}
+    />
+  );
+
+  if (state === 'loading') {
     return (
       <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-        <AppHeader
-          title={t('common.appName')}
-          back={false}
-          action={{
-            icon: 'bell-outline',
-            label: t('notifications.title'),
-            onPress: () => router.push('/notifications'),
-          }}
-        />
+        {header}
         <ScrollView contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}>
           <DashboardSkeleton />
         </ScrollView>
@@ -56,19 +89,20 @@ export default function DashboardScreen() {
   // A failed request must never be rendered as "no device", "no plan" or
   // "৳0". Those read as facts about the customer's account, and they would hide
   // an outage behind a perfectly plausible-looking screen.
-  if (error) {
+  //
+  // So each failure names itself. What none of them may ever do is blame the
+  // customer's data for a problem on our side of the wire.
+  if (!isRenderableState(state)) {
+    const copy = failureCopy(state, t, { online, error });
     return (
       <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-        <AppHeader
-          title={t('common.appName')}
-          back={false}
-          action={{
-            icon: 'bell-outline',
-            label: t('notifications.title'),
-            onPress: () => router.push('/notifications'),
-          }}
+        {header}
+        <ErrorState
+          title={copy.title}
+          message={copy.body}
+          onRetry={() => void refetch()}
+          onSignOut={() => void signOut()}
         />
-        <ErrorState message={error.message} onRetry={() => void refetch()} onSignOut={() => void signOut()} />
       </View>
     );
   }
@@ -77,16 +111,7 @@ export default function DashboardScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: theme.colors.background }]}>
-      <AppHeader
-        title={t('common.appName')}
-        back={false}
-        action={{
-          icon: 'bell-outline',
-          label: t('notifications.title'),
-          badge: data?.unreadNotificationCount,
-          onPress: () => router.push('/notifications'),
-        }}
-      />
+      {header}
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingHorizontal: gutter }]}
@@ -115,32 +140,52 @@ export default function DashboardScreen() {
               >
                 {device?.name ?? t('dashboard.noDevice')}
               </Text>
-              <Text
-                variant="headlineMedium"
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.7}
-                style={[styles.heroAmount, { color: theme.colors.primary }]}
-                testID="dashboard-remaining"
-              >
-                {formatCurrency(plan?.remainingAmount ?? 0, { compact: true })}
-              </Text>
+              {plan ? (
+                <Text
+                  variant="headlineMedium"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                  style={[styles.heroAmount, { color: theme.colors.primary }]}
+                  testID="dashboard-remaining"
+                >
+                  {formatCurrency(plan.remainingAmount, { compact: true })}
+                </Text>
+              ) : (
+                // No plan means no figure. The largest, bluest number on the
+                // screen used to read "৳0" here, which is a claim — that a
+                // customer with no contract owes nothing on a phone that costs
+                // money. The empty state says what is actually true.
+                <Text
+                  variant="titleMedium"
+                  style={{ color: theme.colors.onSurface, fontWeight: '700' }}
+                  testID="dashboard-no-plan"
+                >
+                  {t('dashboard.noPlanTitle')}
+                </Text>
+              )}
             </View>
             {device ? deviceStateBadge(device.deviceState, deviceStateLabel(device.deviceState, t)) : null}
           </View>
 
-          <AmountProgress paid={plan?.paidAmount ?? 0} total={plan?.totalPrice ?? 0} />
+          {plan ? <AmountProgress paid={plan.paidAmount} total={plan.totalPrice} /> : null}
 
-          <View style={styles.metricRow}>
-            <StatTile
-              label={t('installments.totalPrice')}
-              value={formatCurrency(plan?.totalPrice ?? 0)}
-            />
-            <StatTile
-              label={t('installments.installmentAmount')}
-              value={formatCurrency(plan?.installmentAmount ?? 0)}
-            />
-          </View>
+          {plan ? (
+            <View style={styles.metricRow}>
+              <StatTile
+                label={t('installments.totalPrice')}
+                value={formatCurrency(plan.totalPrice)}
+              />
+              <StatTile
+                label={t('installments.installmentAmount')}
+                value={formatCurrency(plan.installmentAmount)}
+              />
+            </View>
+          ) : (
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+              {t('dashboard.noPlanBody')}
+            </Text>
+          )}
 
           <AppButton
             variant="outline"
@@ -177,7 +222,10 @@ export default function DashboardScreen() {
             />
           </SectionCard>
         ) : (
-          <SectionCard>
+          // The account is real; the contract is not, yet. This is the single most
+          // common state for a customer created moments ago, and it is a sentence
+          // inside the normal screen rather than a page that says something failed.
+          <SectionCard title={t('installments.title')}>
             <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
               {t('dashboard.noInstallment')}
             </Text>
@@ -213,6 +261,48 @@ export default function DashboardScreen() {
       </ScrollView>
     </View>
   );
+}
+
+/** What each failing state says, and what it must never say. */
+function failureCopy(
+  state: ReturnType<typeof useHomeSummary>['state'],
+  t: ReturnType<typeof useTranslation>['t'],
+  context: { online: boolean; error: ApiError | null },
+): { title: string; body: string } {
+  const { error } = context;
+  const kind = error?.kind;
+
+  switch (state) {
+    case 'auth_error':
+      // No session to be refused. Saying anything about the account would be a
+      // guess; the only honest instruction is to sign in again.
+      return { title: t('errors.sessionTitle'), body: t('errors.sessionBody') };
+
+    case 'customer_not_found':
+      // The sign-in worked. The server simply has no customer behind it, which is
+      // what a session that was never linked to a `profiles` row looks like. The
+      // remedy is at the store, so that is what the copy says.
+      return { title: t('errors.customerMissingTitle'), body: t('errors.customerMissingBody') };
+
+    case 'network_error':
+      return {
+        title: t(context.online ? 'errors.networkTitle' : 'errors.offlineTitle'),
+        body: error?.message ?? defaultMessageFor(kind ?? 'network'),
+      };
+
+    case 'service_error':
+    default:
+      // A route this server build does not have, a 5xx, or a 200 that was not the
+      // view we asked for. Surfaced as itself — never suppressed, never dressed
+      // up as a fact about the customer's account.
+      if (kind === 'unavailable') {
+        return { title: t('errors.unavailableTitle'), body: t('errors.unavailableBody') };
+      }
+      return {
+        title: t('errors.generic'),
+        body: error?.message ?? defaultMessageFor(kind ?? 'server'),
+      };
+  }
 }
 
 function QuickAction({

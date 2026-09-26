@@ -42,6 +42,17 @@ export function EmptyState({ title, body, icon = 'inbox-outline', action, style 
 }
 
 interface ErrorStateProps {
+  /**
+   * What went wrong, in the customer's terms.
+   *
+   * Defaults to the generic line. It is overridable because "Something went
+   * wrong. Please try again." is only honest when nothing more specific is
+   * known — a session that has genuinely ended, an account the server cannot
+   * find, and a part of the service that is not deployed are three different
+   * events, and a customer who is told the same sentence for all three learns
+   * nothing from any of them.
+   */
+  title?: string;
   message?: string | null;
   onRetry?: () => void;
   /**
@@ -61,7 +72,7 @@ interface ErrorStateProps {
  * Renders only customer-safe copy. Stack traces, SQL text and backend paths are
  * stripped before they ever reach this component.
  */
-export function ErrorState({ message, onRetry, onSignOut, style }: ErrorStateProps) {
+export function ErrorState({ title, message, onRetry, onSignOut, style }: ErrorStateProps) {
   const { t } = useTranslation();
   const theme = useTheme();
   const { gutter } = useLayout();
@@ -74,7 +85,7 @@ export function ErrorState({ message, onRetry, onSignOut, style }: ErrorStatePro
         variant="titleMedium"
         style={{ color: theme.colors.onSurface, fontWeight: '700', textAlign: 'center' }}
       >
-        {t('errors.generic')}
+        {title ?? t('errors.generic')}
       </Text>
       <Text
         variant="bodyMedium"

@@ -220,7 +220,7 @@ class DeviceCheckInImpl {
     let pending: PendingDeviceCommand[];
     try {
       pending = await endpoints.device.pendingCommands();
-    } catch (error) {
+    } catch {
       return {
         capable: true,
         expiredLeaseReleased,

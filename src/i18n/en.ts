@@ -63,6 +63,12 @@ export const en = {
     support: 'Support',
     noDevice: 'No device is linked to this account yet.',
     noInstallment: 'No active installment plan.',
+    noPlanTitle: 'No installment plan yet',
+    noPlanBody:
+      'Nothing has been set up on this account yet. Your plan and what you owe will appear here once they exist.',
+    noDeviceTitle: 'No device linked yet',
+    noDeviceBody:
+      'Your phone has not been linked to this account. The store links it when the phone is handed over.',
     paidOff: 'All installments paid. Thank you!',
   },
   device: {
@@ -334,6 +340,22 @@ export const en = {
     emptyTitle: 'Nothing here yet',
     emptyBody: 'This will appear once there is data to show.',
     notFound: 'We could not find that.',
+    /**
+     * Each of these names one specific failure, because the generic sentence is
+     * only honest when nothing more is known. A customer told "something went
+     * wrong" about a screen that is simply not deployed on the server learns
+     * nothing, retries forever, and blames their own phone.
+     */
+    sessionTitle: 'Please sign in again',
+    sessionBody: 'Your session has ended, so we could not load your account.',
+    customerMissingTitle: 'We could not find your account',
+    customerMissingBody:
+      'You are signed in, but no account is linked to this sign-in yet. If you bought a phone from us, please contact the store so they can link it.',
+    unavailableTitle: 'Not available yet',
+    unavailableBody:
+      'This part of your account is not available on our service at the moment. Nothing is wrong with your phone or your account.',
+    networkTitle: 'We could not reach our servers',
+    offlineTitle: 'You are offline',
   },
 } as const;
 

@@ -8,6 +8,7 @@ import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { queryClient } from '@/api/queryClient';
+import { useAutoDeviceSync, useLiveSync } from '@/hooks/useAutoDeviceSync';
 import { useAppTheme } from '@/hooks/useTheme';
 import { registerBackgroundSync } from '@/services/backgroundSync';
 import {
@@ -36,6 +37,16 @@ export default function RootLayout() {
     bootstrapped.current = true;
     void bootstrap();
   }, [bootstrap]);
+
+  // The phone describes itself to the server on its own — once per signed-in
+  // session, and again after a restart or a fresh install. Without this the panel
+  // only ever shows the `DEMO` rows the seeder wrote, which it marks as demo for
+  // exactly that reason.
+  useAutoDeviceSync();
+
+  // While the app is in the foreground, keep re-reading the server so a staff
+  // action in the panel reaches the customer's screen without them doing anything.
+  useLiveSync();
 
   // Reconnecting refetches server state instead of trusting cached values.
   useEffect(

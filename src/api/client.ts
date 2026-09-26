@@ -1,10 +1,15 @@
 import { API_BASE_URL, DEFAULT_TIMEOUT_MS, MAX_RETRIES, RETRYABLE_METHODS } from './config';
 import {
+  logRequestStart,
+  logResponse,
+  logUnreachable,
+} from './devLog';
+import {
   ApiError,
   defaultMessageFor,
   extractFieldErrors,
   extractSafeMessage,
-  statusToKind,
+  refineKind,
   type ErrorKind,
 } from './errors';
 import type { HttpMethod, RequestOptions, TokenProvider, UnauthorizedHandler } from './types';
@@ -136,7 +141,11 @@ export class ApiClient {
         throw new ApiError({ kind: 'unknown', message: defaultMessageFor('unknown') });
       }
 
-      const response = await doFetch(buildUrl(this.origin, path, options.query), {
+      const url = buildUrl(this.origin, path, options.query);
+      const startedAt = Date.now();
+      logRequestStart({ method, url });
+
+      const response = await doFetch(url, {
         method,
         headers,
         signal: controller.signal,
@@ -144,6 +153,18 @@ export class ApiClient {
       });
 
       const payload = await readBody(response);
+
+      // Every answer, not only the failures: the one thing that makes a
+      // mis-pointed build obvious from a device is a line naming the URL that was
+      // actually called, next to the status that came back from it.
+      logResponse({
+        method,
+        url,
+        status: response.status,
+        kind: response.ok ? 'ok' : refineKind(response.status, payload),
+        durationMs: Date.now() - startedAt,
+        payload,
+      });
 
       if (!response.ok) {
         throw buildHttpError(response.status, payload);
@@ -163,10 +184,9 @@ export class ApiClient {
         // to reach our servers" while the server is answering perfectly well.
         // Logging the destination is the difference between a one-minute fix and
         // an afternoon. Never the token, never a body.
-        console.warn(
-          `[api] ${method} ${buildUrl(this.origin, path, options.query)} was not answered: ${
-            error instanceof Error ? error.message : String(error)
-          } — on a web build, check the API sends CORS headers`,
+        logUnreachable(
+          { method, url: buildUrl(this.origin, path, options.query) },
+          error instanceof Error ? error.message : String(error),
         );
       }
       throw new ApiError({ kind: 'network', message: defaultMessageFor('network') });
@@ -198,11 +218,12 @@ export function buildUrl(
 }
 
 export function buildHttpError(status: number, payload: unknown): ApiError {
-  const kind = statusToKind(status);
+  const kind = refineKind(status, payload);
   const fallback = defaultMessageFor(kind);
   // The backend's own wording is only shown for validation failures, where it
   // is written for a human. A 404 that says "Not Found" is the server's
-  // vocabulary, not something to put in front of a customer.
+  // vocabulary, not something to put in front of a customer — and, refined above,
+  // it is not even a statement about the customer.
   const message = kind === 'validation' ? extractSafeMessage(payload, fallback) : fallback;
   const code =
     payload && typeof payload === 'object' && typeof (payload as { code?: unknown }).code === 'string'

@@ -1,5 +1,11 @@
 import { ApiClient } from '@/api/client';
-import { isCustomerFacingDetail, isSafeDetail, statusToKind } from '@/api/errors';
+import {
+  defaultMessageFor,
+  isCustomerFacingDetail,
+  isSafeDetail,
+  refineKind,
+  statusToKind,
+} from '@/api/errors';
 
 /**
  * The client no longer owns tokens: Supabase issues and refreshes the session
@@ -119,15 +125,48 @@ describe('ApiClient', () => {
   });
 
   it('replaces the server HTTP vocabulary with customer-facing copy', async () => {
+    // `{"message":"Not Found"}` is exactly what the deployed server answers to
+    // `GET /customer/dashboard`, because that route is not deployed on it. The
+    // router's answer says nothing about the customer's records, so it is
+    // classified as a statement about the server — and the copy must not tell a
+    // customer their information was not found, which is what this used to do.
     const fetchImpl = jest.fn(async () => jsonResponse({ message: 'Not Found' }, 404));
     const client = makeClient(fetchImpl);
 
-    const error = (await client.get('/payments').catch((e: unknown) => e)) as {
+    const error = (await client.get('/dashboard').catch((e: unknown) => e)) as {
+      kind: string;
+      message: string;
+    };
+    expect(error.kind).toBe('unavailable');
+    expect(error.message).not.toMatch(/not found/i);
+    expect(error.message).toBe(defaultMessageFor('unavailable'));
+  });
+
+  it('still says a record was not found when the server names one', async () => {
+    // A 404 from a route that ran is a different event, and `not_found` is the
+    // honest classification for it — the body names the thing that is missing.
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse({ message: 'No such contract for this customer.' }, 404),
+    );
+    const client = makeClient(fetchImpl);
+
+    const error = (await client.get('/installments/plan').catch((e: unknown) => e)) as {
       kind: string;
       message: string;
     };
     expect(error.kind).toBe('not_found');
     expect(error.message).toBe('The requested information was not found.');
+  });
+
+  it('refines only the 404 it has evidence for', async () => {
+    // Every other status is exactly what the status says it is, body or no body.
+    expect(refineKind(401, { message: 'Unauthorized request' })).toBe('unauthorized');
+    expect(refineKind(500, {})).toBe('server');
+    expect(refineKind(404, { message: 'Not Found' })).toBe('unavailable');
+    expect(refineKind(404, null)).toBe('unavailable');
+    expect(refineKind(404, { message: 'No such contract for this customer.' })).toBe('not_found');
+    // The status table on its own is unchanged: it is a table of statuses.
+    expect(statusToKind(404)).toBe('not_found');
   });
 
   it('still shows a human-written validation message', async () => {
