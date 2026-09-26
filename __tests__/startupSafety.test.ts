@@ -36,8 +36,15 @@ jest.mock('expo-localization', () => ({
 }));
 
 // Imported after the mock is in place, exactly as the bundler would evaluate it.
+/* eslint-disable import/first --
+   `jest.mock` is hoisted above imports by babel-plugin-jest-hoist, so this
+   position documents an order that actually holds at runtime: the mock is
+   registered before these two modules are evaluated, which is the whole point
+   of the test. Moving them to the top would not change what runs, only the
+   claim this file makes. */
 import { detectLanguage } from '@/i18n';
 import { usePreferencesStore } from '@/store/preferencesStore';
+/* eslint-enable import/first */
 
 beforeEach(() => {
   mockGetLocales.mockReset();

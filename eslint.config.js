@@ -14,6 +14,15 @@ module.exports = defineConfig([
       'modules/*',
       // The admin panel is a separate browser app with its own config below.
       'admin/**',
+      // The API is a separate Node service. Two Expo rules are actively wrong
+      // for it rather than merely inapplicable:
+      //
+      //   expo/no-dynamic-env-var  — in the app, `EXPO_PUBLIC_*` is inlined into
+      //     a shipped bundle, so a computed name genuinely breaks. On a server
+      //     `process.env` is read at runtime and a computed name is ordinary.
+      //   the React Native resolver  — there is no Metro here, and `.js`
+      //     extensions in imports are what Node ESM requires.
+      'api/**',
     ],
   },
   {
@@ -51,6 +60,20 @@ module.exports = defineConfig([
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
       'no-console': 'off',
+    },
+  },
+  {
+    // The API is a plain Node service: no React, no Expo, no bundler. The rules
+    // above are the app's; these are the ones that actually matter to it, and
+    // `any` is refused outright because the whole safety argument in
+    // reads.ts is that the ownership filter is typed and visible.
+    files: ['api/**/*.{ts,js}'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly', fetch: 'readonly', Buffer: 'readonly', URL: 'readonly' },
+    },
+    rules: {
+      'no-console': ['error', { allow: ['error', 'warn'] }],
+      '@typescript-eslint/no-explicit-any': 'error',
     },
   },
   {

@@ -25,12 +25,14 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "doctor": "expo-doctor",
-    "verify": "npm run typecheck && npm run lint && npm run test && npm run typecheck:admin",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run typecheck:admin && npm run typecheck:api && npm run test:api",
     "verify:rls": "node scripts/verify-rls.mjs",
     "check:signup": "node scripts/check-signup.mjs",
     "dev:mock:keep": "node mock-server/server.mjs --supervise",
     "dev:mock:proxy:keep": "node scripts/dev-web-proxy.mjs --supervise",
-    "typecheck:admin": "npm --prefix admin run typecheck"
+    "typecheck:admin": "npm --prefix admin run typecheck",
+    "typecheck:api": "npm --prefix api run typecheck",
+    "test:api": "npm --prefix api test"
   },
   "dependencies": {
     "@expo/metro-runtime": "~57.0.16",

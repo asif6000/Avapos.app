@@ -87,6 +87,31 @@ alter table public.notifications   add column if not exists customer_key text;
 alter table public.support_tickets add column if not exists customer_key text;
 alter table public.installment_contracts add column if not exists customer_key text;
 
+-- Two columns the app's own types require and this project does not have.
+-- `AppNotification` in src/types/domain.ts is
+--
+--   { id, type, title, message, isRead, createdAt, referenceId }
+--
+-- and `notifications` has `title` and then nothing until `is_read`. Measured on
+-- the live project: `message` and `reference_id` both reported as
+-- "column notifications.message does not exist".
+--
+-- `referenceId` is not cosmetic. It is what the notification deep-link resolves
+-- a destination from — `resolveDeepLink()` in src/services/notifications.ts maps
+-- a type plus a referenceId to a screen, and a notification that cannot name its
+-- reference can only ever open the notification centre. So this is a routing
+-- column, not a label.
+--
+-- Nullable, and a notification written before this ran reads as an empty body
+-- rather than failing.
+alter table public.notifications add column if not exists message text;
+alter table public.notifications add column if not exists reference_id text;
+
+-- `payments.gateway_order_id` is absent for the same reason, and is not added
+-- here: this service never verifies a callback, so it never has an order id to
+-- match. It is written by the gateway handler when the payment flow moves off
+-- this read-only service.
+
 
 -- ---------------------------------------------------------------------------
 -- 2. The demo device and its contract.
