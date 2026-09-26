@@ -1,0 +1,7 @@
+{
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
+  },
+  "projectId": "43d0b5bb-580a-4c45-82ae-51e85fda545e"
+}

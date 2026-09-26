@@ -41,3 +41,8 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Built APKs. A `preview` APK is ~100MB and is fetched from its EAS artifact URL
+# (`eas build:view <id> --json` -> artifacts.buildUrl), never rebuilt from the
+# repository, so committing one bloats every clone and never makes a build faster.
+artifacts/
