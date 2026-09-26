@@ -66,6 +66,16 @@ jest.mock('@/services/notifications', () => ({
 }));
 
 /**
+ * Wrapped rather than replaced, so every other test in this file still gets the
+ * real hooks and can assert on what they do. Only the tests at the bottom of this
+ * file re-point one of them.
+ */
+jest.mock('@/hooks/useAutoDeviceSync', () => {
+  const actual = jest.requireActual('@/hooks/useAutoDeviceSync');
+  return { ...actual, useAutoDeviceSync: jest.fn(actual.useAutoDeviceSync) };
+});
+
+/**
  * Spied rather than mocked: `_layout` passes this exact object to
  * `QueryClientProvider`, and a stand-in with only `invalidateQueries` on it is not
  * a client — `client.mount is not a function`, which is a test bug that looks
@@ -232,5 +242,53 @@ describe('an optional startup task must never stop the app opening', () => {
     // A degraded launch is still a launch, and the phone still describes itself.
     await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
     expect(tree.toJSON()).toBeTruthy();
+  });
+});
+
+describe('a hook in the layout body is inside the boundary', () => {
+  /**
+   * The regression this file exists to prevent.
+   *
+   * `AppErrorBoundary` is a component, and a component can only catch a throw from
+   * something rendered *inside* it. While the layout's hooks were called in
+   * `RootLayout`'s own body they ran a frame before the boundary existed, so a
+   * throw from one of them was invisible: splash screen, then a process that is
+   * simply gone. That is the exact failure the boundary was added for, and it is
+   * why the hooks now live in a child rendered beneath it.
+   */
+
+  const { useAutoDeviceSync } = require('@/hooks/useAutoDeviceSync') as {
+    useAutoDeviceSync: jest.Mock;
+  };
+  const real = jest.requireActual('@/hooks/useAutoDeviceSync') as {
+    useAutoDeviceSync: () => void;
+  };
+
+  afterEach(() => {
+    useAutoDeviceSync.mockImplementation(real.useAutoDeviceSync);
+  });
+
+  it('shows the crash screen instead of dying when a startup hook throws', async () => {
+    useAutoDeviceSync.mockImplementation(() => {
+      throw new Error('the handset could not be described');
+    });
+
+    const tree = await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 24, left: 0, right: 0, bottom: 24 },
+        }}
+      >
+        <PaperProvider>
+          <RootLayout />
+        </PaperProvider>
+      </SafeAreaProvider>,
+    );
+
+    // Readable by the person holding the phone, and naming the actual cause —
+    // which is the whole reason the screen exists.
+    await waitFor(() => expect(tree.getByText('The app could not start')).toBeTruthy());
+    expect(tree.getByText(/the handset could not be described/)).toBeTruthy();
   });
 });

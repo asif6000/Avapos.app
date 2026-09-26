@@ -59,8 +59,59 @@ function cannotStopTheApp(task: string, work: () => unknown): unknown {
   }
 }
 
-export default function RootLayout() {
+/**
+ * Everything that reads a hook, below.
+ *
+ * WHY IT IS NOT IN `RootLayout` ITSELF
+ *
+ * An error boundary can only catch a throw from something *rendered inside it*.
+ * While these hooks lived in `RootLayout`'s own body, the boundary was in its
+ * returned JSX — which means every one of them ran a frame earlier than the
+ * boundary existed. A throw from `useAppTheme`, `useAuthStore`, `useAutoDeviceSync`
+ * or `useLiveSync` therefore took the process down with nothing on screen and
+ * nothing logged, which is the one failure the boundary was added to prevent.
+ *
+ * So `RootLayout` is now nothing but the boundary and the providers, and every
+ * hook lives in a child rendered beneath it. `PaperProvider` is included in that
+ * split rather than hoisted into `RootLayout` for the same reason: the theme is
+ * read by a hook, and a theme read above the boundary is a theme that can crash
+ * the app outside it.
+ *
+ * `CrashScreen` is below the boundary too, so it has no `PaperProvider` when the
+ * failure was in the theme. React Native Paper's `useTheme` falls back to its own
+ * default theme in that case, which is what the crash screen is drawn with — and a
+ * default-theme error page is exactly what a page outside the app's theme should
+ * look like, so nothing has to be provided to make it readable.
+ */
+function ThemedApp() {
   const { theme, isDark } = useAppTheme();
+
+  return (
+    <PaperProvider theme={theme}>
+      <AppShell theme={theme} isDark={isDark} />
+    </PaperProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    // Outermost, so it also catches a failure in the providers below it. A
+    // release build has no error overlay and no console anybody is watching: an
+    // uncaught render error here is a splash screen and then nothing. This turns
+    // that into a screen the person holding the phone can read and copy.
+    <AppErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SafeAreaProvider>
+          <QueryClientProvider client={queryClient}>
+            <ThemedApp />
+          </QueryClientProvider>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </AppErrorBoundary>
+  );
+}
+
+function AppShell({ theme, isDark }: { theme: ReturnType<typeof useAppTheme>['theme']; isDark: boolean }) {
   const router = useRouter();
   const status = useAuthStore((state) => state.status);
   const bootstrap = useAuthStore((state) => state.bootstrap);
@@ -126,34 +177,22 @@ export default function RootLayout() {
   }, [router, status]);
 
   return (
-    // Outermost, so it also catches a failure in the providers below it. A
-    // release build has no error overlay and no console anybody is watching: an
-    // uncaught render error here is a splash screen and then nothing. This turns
-    // that into a screen the person holding the phone can read and copy.
-    <AppErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <SafeAreaProvider>
-          <QueryClientProvider client={queryClient}>
-            <PaperProvider theme={theme}>
-              <StatusBar style={isDark ? 'light' : 'dark'} />
-              <Stack
-                screenOptions={{
-                  headerShown: false,
-                  contentStyle: { backgroundColor: theme.colors.background },
-                }}
-              >
-                {/* Only declare routes that actually exist. `device/`,
-                    `installments/`, `payments/` and `support/` hold nested
-                    screens only, so naming the parent throws a layout warning. */}
-                <Stack.Screen name="index" />
-                <Stack.Screen name="(auth)" />
-                <Stack.Screen name="(tabs)" />
-                <Stack.Screen name="notifications/index" />
-              </Stack>
-            </PaperProvider>
-          </QueryClientProvider>
-        </SafeAreaProvider>
-      </GestureHandlerRootView>
-    </AppErrorBoundary>
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: theme.colors.background },
+        }}
+      >
+        {/* Only declare routes that actually exist. `device/`, `installments/`,
+            `payments/` and `support/` hold nested screens only, so naming the
+            parent throws a layout warning. */}
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="notifications/index" />
+      </Stack>
+    </>
   );
 }
