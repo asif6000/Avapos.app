@@ -7,7 +7,19 @@
   },
   "rewrites": [
     {
+      "source": "/customer",
+      "destination": "/api/index.ts"
+    },
+    {
       "source": "/customer/:path*",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/customer/",
+      "destination": "/api/index.ts"
+    },
+    {
+      "source": "/admin/api",
       "destination": "/api/index.ts"
     },
     {
