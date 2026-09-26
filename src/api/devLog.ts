@@ -191,3 +191,28 @@ function backendMessage(payload: unknown): string | null {
   }
   return null;
 }
+
+export interface RealtimeLogContext {
+  table?: string;
+  userId?: string;
+  status?: string;
+  tables?: number;
+}
+
+/**
+ * One line per realtime lifecycle event: subscribing, connected, a change, and
+ * the app going to the background.
+ *
+ * It is a log and not a query. The row contents are never printed — the payload
+ * is only ever a hint to refetch, so printing it would suggest it is being used
+ * for something it is not.
+ */
+export function logRealtime(event: string, context: RealtimeLogContext): void {
+  if (!isDevLogging()) return;
+  const parts = [`event=${event}`];
+  if (context.table) parts.push(`table=${context.table}`);
+  if (context.userId) parts.push(`userId=${context.userId}`);
+  if (context.status) parts.push(`status=${context.status}`);
+  if (context.tables != null) parts.push(`tables=${context.tables}`);
+  console.info(header(`[realtime] ${parts.join(' ')}`));
+}

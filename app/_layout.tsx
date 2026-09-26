@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { queryClient } from '@/api/queryClient';
 import { useAutoDeviceSync, useLiveSync } from '@/hooks/useAutoDeviceSync';
+import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { useAppTheme } from '@/hooks/useTheme';
 import { registerBackgroundSync } from '@/services/backgroundSync';
 import {
@@ -177,6 +178,13 @@ function AppShell({ theme, isDark }: { theme: ReturnType<typeof useAppTheme>['th
    * exactly "after the app is on screen", and gives up quietly if the app is
    * backgrounded before then.
    */
+  /**
+   * Live updates. Armed alongside the poller, never instead of it — see the note
+   * on `useRealtimeSync` about a phone that was asleep and missed everything in
+   * between.
+   */
+  useRealtimeSync();
+
   useEffect(() => {
     const interaction = InteractionManager.runAfterInteractions(() => {
       void cannotStopTheApp('backgroundSync.register', () => registerBackgroundSync());
