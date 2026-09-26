@@ -5,7 +5,16 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*', 'node_modules/*', '.expo/*', 'android/*', 'ios/*', 'modules/*'],
+    ignores: [
+      'dist/*',
+      'node_modules/*',
+      '.expo/*',
+      'android/*',
+      'ios/*',
+      'modules/*',
+      // The admin panel is a separate browser app with its own config below.
+      'admin/**',
+    ],
   },
   {
     rules: {

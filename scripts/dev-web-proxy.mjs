@@ -285,6 +285,8 @@ const server = createServer((request, response) => {
   forward(request, response, `http://127.0.0.1:${APP_PORT}${request.url}`, { stripOrigin: true });
 });
 
+let bindRetries = 0;
+
 server.on('error', (error) => {
   console.error(`  proxy error: ${error.message}`);
   // A port that is busy is worth waiting for, not worth dying quietly on: the
@@ -292,8 +294,17 @@ server.on('error', (error) => {
   // process stays alive, listening to nothing, and every request fails while
   // the log claims it started.
   if (error.code === 'EADDRINUSE') {
-    console.error(`  port ${LISTEN_PORT} is busy — retrying in 2s.`);
-    setTimeout(() => server.listen(LISTEN_PORT, LISTEN_HOST), 2000);
+    // Back off rather than spinning: a stale holder is usually a process of ours
+    // that is still dying, and a log full of this hides the request lines that
+    // actually matter.
+    bindRetries += 1;
+    const wait = Math.min(2000 * bindRetries, 15000);
+    if (bindRetries === 1) {
+      console.error(`  port ${LISTEN_PORT} is busy — retrying.`);
+    } else if (bindRetries === 8) {
+      console.error(`  port ${LISTEN_PORT} is still busy; another process is serving it.`);
+    }
+    setTimeout(() => server.listen(LISTEN_PORT, LISTEN_HOST), wait);
     return;
   }
   if (error.code === 'EACCES') {
@@ -305,6 +316,7 @@ server.on('error', (error) => {
 server.listen(LISTEN_PORT, LISTEN_HOST, () => {
   console.log('');
   console.log('  Dev proxy (development only)');
+  bindRetries = 0;
   console.log(`    app + API   http://${LISTEN_HOST}:${LISTEN_PORT}`);
   console.log(`    expo        http://127.0.0.1:${APP_PORT}`);
   console.log(`    mock API    ${MOCK_ORIGIN}`);
