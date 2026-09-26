@@ -43,7 +43,7 @@ jest.mock('@/store/authStore', () => ({
 const mockSetOnline = jest.fn();
 jest.mock('@/store/networkStore', () => ({
   useNetworkStore: (selector: (state: Record<string, unknown>) => unknown) => selector({ online: true }),
-  startNetworkWatcher: () => jest.fn(),
+  startNetworkWatcher: jest.fn(() => jest.fn()),
   subscribeToNetwork: () => jest.fn(),
   currentNetworkState: async () => ({ online: true, expensive: false }),
   setOnline: mockSetOnline,
@@ -53,6 +53,16 @@ const mockMutateAsync = jest.fn(async () => null);
 jest.mock('@/hooks/queries', () => ({
   useSyncDevice: () => ({ mutateAsync: mockMutateAsync, isPending: false }),
   useDashboard: () => ({ data: undefined, isLoading: false, isRefetching: false, error: null, refetch: jest.fn() }),
+}));
+
+jest.mock('@/services/backgroundSync', () => ({
+  registerBackgroundSync: jest.fn(async () => undefined),
+}));
+
+jest.mock('@/services/notifications', () => ({
+  registerForPushNotifications: jest.fn(async () => ({ registered: false, permission: 'denied' })),
+  refreshFromNotification: jest.fn(async () => undefined),
+  resolveDeepLink: () => ({ screen: '/(tabs)' }),
 }));
 
 /**
@@ -134,4 +144,93 @@ it('mounts while signed out, before any session exists', async () => {
   await waitFor(() => expect(tree.toJSON()).toBeTruthy());
   // No report may be sent for a session that does not exist.
   expect(mockMutateAsync).not.toHaveBeenCalled();
+});
+
+describe('an optional startup task must never stop the app opening', () => {
+  /**
+   * The reported symptom — splash, then nothing — is what an uncaught throw in a
+   * startup effect looks like on a release build, where there is no red box and
+   * the console is somewhere nobody is watching. Every task below is optional:
+   * none of them is worth a customer being unable to open the app to pay an
+   * installment.
+   */
+
+  const backgroundSync = require('@/services/backgroundSync') as {
+    registerBackgroundSync: jest.Mock;
+  };
+  const networkStore = require('@/store/networkStore') as { startNetworkWatcher: jest.Mock };
+  const notifications = require('@/services/notifications') as {
+    registerForPushNotifications: jest.Mock;
+  };
+
+  beforeEach(() => {
+    backgroundSync.registerBackgroundSync.mockClear().mockResolvedValue(undefined);
+    networkStore.startNetworkWatcher.mockClear().mockReturnValue(jest.fn());
+    notifications.registerForPushNotifications.mockClear().mockResolvedValue(undefined);
+  });
+
+  async function mount() {
+    return await render(
+      <SafeAreaProvider
+        initialMetrics={{
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 24, left: 0, right: 0, bottom: 24 },
+        }}
+      >
+        <PaperProvider>
+          <RootLayout />
+        </PaperProvider>
+      </SafeAreaProvider>,
+    );
+  }
+
+  it('opens anyway when background sync cannot be registered', async () => {
+    backgroundSync.registerBackgroundSync.mockRejectedValue(new Error('BackgroundTask unavailable'));
+
+    const tree = await mount();
+
+    await waitFor(() => expect(tree.toJSON()).toBeTruthy());
+  });
+
+  it('opens anyway when background sync throws synchronously', async () => {
+    backgroundSync.registerBackgroundSync.mockImplementation(() => {
+      throw new Error('registerTaskAsync is not a function');
+    });
+
+    const tree = await mount();
+
+    await waitFor(() => expect(tree.toJSON()).toBeTruthy());
+  });
+
+  it('opens anyway when the network watcher cannot start', async () => {
+    networkStore.startNetworkWatcher.mockImplementation(() => {
+      throw new Error('expo-network missing');
+    });
+
+    const tree = await mount();
+
+    await waitFor(() => expect(tree.toJSON()).toBeTruthy());
+  });
+
+  it('opens anyway when push registration fails, once signed in', async () => {
+    notifications.registerForPushNotifications.mockRejectedValue(new Error('no FCM token'));
+
+    const tree = await mount();
+
+    await waitFor(() => expect(notifications.registerForPushNotifications).toHaveBeenCalled());
+    expect(tree.toJSON()).toBeTruthy();
+  });
+
+  it('still reports the handset when every other startup task has failed', async () => {
+    backgroundSync.registerBackgroundSync.mockRejectedValue(new Error('nope'));
+    networkStore.startNetworkWatcher.mockImplementation(() => {
+      throw new Error('nope');
+    });
+
+    const tree = await mount();
+
+    // A degraded launch is still a launch, and the phone still describes itself.
+    await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
+    expect(tree.toJSON()).toBeTruthy();
+  });
 });
