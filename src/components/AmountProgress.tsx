@@ -1,7 +1,8 @@
 import { StyleSheet, View } from 'react-native';
-import { Button, ProgressBar, Text, useTheme } from 'react-native-paper';
+import { ProgressBar, Text, useTheme } from 'react-native-paper';
 
 import { useTranslation } from '@/hooks/useTheme';
+import type { AppTheme } from '@/theme/theme';
 
 interface AmountProgressProps {
   paid: number;
@@ -10,7 +11,7 @@ interface AmountProgressProps {
 }
 
 export function AmountProgress({ paid, total, label }: AmountProgressProps) {
-  const theme = useTheme();
+  const theme = useTheme<AppTheme>();
   const { t } = useTranslation();
   const ratio = total > 0 ? Math.max(0, Math.min(1, paid / total)) : 0;
 
@@ -34,37 +35,7 @@ export function AmountProgress({ paid, total, label }: AmountProgressProps) {
   );
 }
 
-export function PrimaryAction({
-  label,
-  onPress,
-  disabled,
-  loading,
-  testID,
-}: {
-  label: string;
-  onPress: () => void;
-  disabled?: boolean;
-  loading?: boolean;
-  testID?: string;
-}) {
-  return (
-    <Button
-      mode="contained"
-      onPress={onPress}
-      disabled={disabled || loading}
-      loading={loading}
-      testID={testID}
-      contentStyle={styles.buttonContent}
-      style={styles.button}
-    >
-      {label}
-    </Button>
-  );
-}
-
 const styles = StyleSheet.create({
   labels: { flexDirection: 'row', justifyContent: 'space-between' },
   bar: { height: 8, borderRadius: 999 },
-  button: { borderRadius: 999 },
-  buttonContent: { height: 52 },
 });

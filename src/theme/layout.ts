@@ -1,4 +1,4 @@
-import { useWindowDimensions } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, type ViewStyle } from 'react-native';
 
 /**
  * Layout tokens.
@@ -42,6 +42,38 @@ export const WIDE_WIDTH = 600;
 export const MIN_TAP_TARGET = 48;
 
 export const HIT_SLOP = { top: 8, bottom: 8, left: 8, right: 8 } as const;
+
+/**
+ * Depth.
+ *
+ * A hairline border alone leaves a page of white cards looking like a form. One
+ * very soft shadow under each card, and a slightly stronger one under a filled
+ * button, is what makes a screen read as layered paper rather than as boxes —
+ * and "very soft" is the operative word: a hard shadow is the fastest way to make
+ * a clean screen look cheap. Kept here so every surface is lit from the same
+ * place.
+ */
+function depth(y: number, blur: number, opacity: number): ViewStyle {
+  if (Platform.OS === 'android') return { elevation: Math.round(opacity * 12) };
+  if (Platform.OS === 'ios') {
+    return {
+      shadowColor: '#0B1A33',
+      shadowOffset: { width: 0, height: y },
+      shadowOpacity: opacity,
+      shadowRadius: blur,
+    };
+  }
+  return { boxShadow: `0px ${y}px ${blur}px rgba(11, 26, 51, ${opacity})` };
+}
+
+/** Cards, banners and sheets. */
+export const cardShadow = depth(4, 12, 0.06);
+
+/** Filled buttons and anything that floats above a card. */
+export const raisedShadow = depth(5, 14, 0.1);
+
+/** The border every surface carries, so depth is not shadow alone. */
+export const hairline = StyleSheet.hairlineWidth;
 
 export interface AppLayout {
   width: number;

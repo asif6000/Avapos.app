@@ -7,6 +7,7 @@ import { Snackbar, Text, useTheme } from 'react-native-paper';
 import { z } from 'zod';
 
 import { Screen } from '@/components/Screen';
+import { SectionCard } from '@/components/SectionCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { Field } from '@/components/ui/Field';
 import { spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
@@ -139,6 +140,7 @@ export default function RegisterScreen() {
             {t('auth.createAccount')}
           </Text>
 
+          <SectionCard>
           <Controller
             control={control}
             name="fullName"
@@ -248,6 +250,7 @@ export default function RegisterScreen() {
             testID="register-submit"
             onPress={onSubmit}
           />
+          </SectionCard>
 
           <View style={styles.footer}>
             <AppButton

@@ -9,9 +9,10 @@ import {
 import { Text, useTheme } from 'react-native-paper';
 
 import { AppIcon } from '@/components/AppIcon';
-import { MIN_TAP_TARGET, radius, spacing } from '@/theme/layout';
+import { MIN_TAP_TARGET, radius, raisedShadow, spacing } from '@/theme/layout';
+import type { AppTheme } from '@/theme/theme';
 
-export type ButtonVariant = 'primary' | 'tonal' | 'outline' | 'text' | 'danger';
+export type ButtonVariant = 'primary' | 'tonal' | 'outline' | 'text' | 'danger' | 'inverse';
 export type ButtonSize = 'md' | 'lg';
 
 interface AppButtonProps {
@@ -22,6 +23,8 @@ interface AppButtonProps {
   /** Stretches to the width of its container — the default for a form CTA. */
   block?: boolean;
   icon?: string;
+  /** Trailing chevron: the button is a hop, not a destination. */
+  chevron?: boolean;
   disabled?: boolean;
   loading?: boolean;
   testID?: string;
@@ -31,10 +34,13 @@ interface AppButtonProps {
 /**
  * The app's only button.
  *
- * Five looks, two sizes, and every one of them is a 48dp-tall ripple — which is
- * the difference between a button you can hit while walking and one you cannot.
- * Screens stop choosing their own `contentStyle` heights, so a change here moves
- * every page at once.
+ * Six looks, two sizes, and every one of them is the same pill: same radius,
+ * same 48dp-or-54dp height, same 700 label, same ripple. Nothing in the app
+ * draws a button any other way, which is the whole point — a customer should not
+ * be able to tell from the shape of a control which screen they are on.
+ *
+ * `inverse` is the one that earns its keep: white on the blue due banner, where
+ * a filled blue button would disappear into its own background.
  */
 export function AppButton({
   label,
@@ -43,23 +49,55 @@ export function AppButton({
   size = 'md',
   block = false,
   icon,
+  chevron = false,
   disabled = false,
   loading = false,
   testID,
   style,
 }: AppButtonProps) {
-  const theme = useTheme();
+  const theme = useTheme<AppTheme>();
   const inert = disabled || loading;
 
   const look = {
-    primary: { background: theme.colors.primary, foreground: theme.colors.onPrimary },
-    danger: { background: theme.colors.error, foreground: theme.colors.onError },
+    primary: {
+      background: theme.colors.primary,
+      foreground: '#FFFFFF',
+      border: 'transparent',
+      shadow: true,
+    },
+    danger: {
+      background: theme.colors.error,
+      foreground: '#FFFFFF',
+      border: 'transparent',
+      shadow: true,
+    },
+    inverse: {
+      background: '#FFFFFF',
+      foreground: theme.colors.primary,
+      border: 'transparent',
+      shadow: true,
+    },
     tonal: {
       background: theme.colors.primaryContainer,
       foreground: theme.colors.onPrimaryContainer,
+      border: 'transparent',
+      shadow: false,
     },
-    outline: { background: 'transparent', foreground: theme.colors.primary },
-    text: { background: 'transparent', foreground: theme.colors.primary },
+    outline: {
+      background: 'transparent',
+      foreground: theme.colors.primary,
+      // `outline`, not `outlineVariant`: a standalone button sitting on the page
+      // needs a border a customer can actually see — the hairline tone is only
+      // legible against a card.
+      border: theme.colors.outline,
+      shadow: false,
+    },
+    text: {
+      background: 'transparent',
+      foreground: theme.colors.primary,
+      border: 'transparent',
+      shadow: false,
+    },
   }[variant];
 
   return (
@@ -68,8 +106,12 @@ export function AppButton({
         styles.wrapper,
         block && styles.block,
         { height: size === 'lg' ? 54 : MIN_TAP_TARGET },
-        variant === 'outline' && { borderWidth: 1, borderColor: theme.colors.outline },
-        { backgroundColor: look.background, opacity: inert ? 0.55 : 1 },
+        look.shadow && !inert ? raisedShadow : null,
+        {
+          backgroundColor: look.background,
+          opacity: inert ? 0.5 : 1,
+        },
+        look.border !== 'transparent' ? { borderWidth: 1, borderColor: look.border } : null,
         style,
       ]}
     >
@@ -93,12 +135,13 @@ export function AppButton({
             <>
               {icon ? <AppIcon name={icon} size={20} color={look.foreground} /> : null}
               <Text
-                variant="labelLarge"
+                variant={size === 'lg' ? 'titleSmall' : 'labelLarge'}
                 numberOfLines={1}
-                style={{ color: look.foreground, fontWeight: '700', letterSpacing: 0.2 }}
+                style={{ color: look.foreground, fontWeight: '700', letterSpacing: 0.1 }}
               >
                 {label}
               </Text>
+              {chevron ? <AppIcon name="chevron-right" size={20} color={look.foreground} /> : null}
             </>
           )}
         </View>

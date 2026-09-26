@@ -12,8 +12,11 @@ interface ListRowProps {
   /** A badge or anything else that belongs on the right. */
   trailingNode?: React.ReactNode;
   icon?: string;
+  /** Replaces the icon slot: a numbered disc, an avatar, anything 40dp round. */
+  leading?: React.ReactNode;
   onPress?: () => void;
   showChevron?: boolean;
+  testID?: string;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -31,20 +34,23 @@ export function ListRow({
   trailing,
   trailingNode,
   icon,
+  leading,
   onPress,
   showChevron = Boolean(onPress),
+  testID,
   style,
 }: ListRowProps) {
   const theme = useTheme();
   const { isCompact } = useLayout();
 
   const body = (
-    <View style={[styles.row, isCompact && styles.rowCompact, style]}>
-      {icon ? (
-        <View style={[styles.icon, { backgroundColor: theme.colors.surfaceVariant }]}>
-          <AppIcon name={icon} size={20} color={theme.colors.onSurfaceVariant} />
-        </View>
-      ) : null}
+    <View style={[styles.row, isCompact && styles.rowCompact, style]} testID={testID}>
+      {leading ??
+        (icon ? (
+          <View style={[styles.icon, { backgroundColor: theme.colors.primaryContainer }]}>
+            <AppIcon name={icon} size={20} color={theme.colors.onPrimaryContainer} />
+          </View>
+        ) : null)}
 
       <View style={styles.text}>
         <Text variant="bodyLarge" numberOfLines={2} style={{ color: theme.colors.onSurface }}>
@@ -86,6 +92,7 @@ export function ListRow({
       android_ripple={{ color: `${theme.colors.primary}14` }}
       accessibilityRole="button"
       accessibilityLabel={[title, subtitle, trailing].filter(Boolean).join(', ')}
+      testID={testID ? `${testID}-press` : undefined}
       style={styles.pressable}
     >
       {body}
@@ -101,13 +108,13 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    minHeight: 64,
+    minHeight: 68,
   },
   rowCompact: { paddingHorizontal: spacing.md, gap: spacing.sm },
   icon: {
     width: 40,
     height: 40,
-    borderRadius: radius.sm,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },

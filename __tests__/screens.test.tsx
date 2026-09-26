@@ -186,8 +186,8 @@ describe('the list screens render', () => {
   it('installments, with a row per installment', async () => {
     const view = await renderScreen(<InstallmentsScreen />);
 
-    expect(await view.findByText('Installments 1')).toBeTruthy();
-    expect(view.getByText('Installments 2')).toBeTruthy();
+    expect(await view.findByText('Installment 1')).toBeTruthy();
+    expect(view.getByText('Installment 2')).toBeTruthy();
     // The status is a translated label, not a raw enum in capitals.
     expect(view.getAllByText('Paid').length).toBeGreaterThan(0);
     expect(view.getByText('Due')).toBeTruthy();

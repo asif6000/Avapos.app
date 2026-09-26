@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
-import { FAB, useTheme } from 'react-native-paper';
+import { useTheme } from 'react-native-paper';
 
+import { ActionBar } from '@/components/ActionBar';
 import { AppHeader } from '@/components/AppHeader';
 import { ListRow } from '@/components/ui/ListRow';
 import { ListSkeleton } from '@/components/Skeleton';
@@ -11,7 +12,7 @@ import { EmptyState, ErrorState } from '@/components/StateViews';
 import { useTickets } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
-import { radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
+import { cardShadow, radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { ticketStatusLabel } from '@/utils/format';
 import type { SupportTicket, TicketStatus } from '@/types/domain';
 
@@ -99,12 +100,11 @@ export default function SupportHomeScreen() {
         />
       )}
 
-      <FAB
+      <ActionBar
         icon="message-plus"
         label={t('support.createTicket')}
-        style={styles.fab}
         onPress={() => router.push('/support/create')}
-        testID="support-fab"
+        testID="support-create"
       />
     </View>
   );
@@ -124,6 +124,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
+    ...cardShadow,
   },
-  fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg },
 });

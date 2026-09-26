@@ -1,11 +1,10 @@
 import { Tabs } from 'expo-router/js-tabs';
-import { StyleSheet, View, type ColorValue } from 'react-native';
+import { StyleSheet, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from 'react-native-paper';
 
 import { AppIcon } from '@/components/AppIcon';
 import { useTranslation } from '@/hooks/useTheme';
-import { radius } from '@/theme/layout';
 
 const TAB_BAR_HEIGHT = 62;
 
@@ -15,19 +14,14 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
   /**
-   * The active tab gets a tinted disc behind its icon. It is the only decoration
-   * in the bar, which is what stops five tabs reading as five equally-weighted
-   * buttons with no sense of where the customer currently is.
+   * Plain icons, blue when active and grey when not. An earlier version drew a
+   * tinted disc behind the active tab, which competed with the badges and
+   * highlights inside the screens above it; the bar is a wayfinding device, and
+   * the only thing it has to say is where you are.
    */
   const tabIcon = (name: string) =>
-    function TabIcon({ color, focused }: { color: ColorValue; focused: boolean }) {
-      return (
-        <View
-          style={[styles.iconDisc, focused && { backgroundColor: theme.colors.primaryContainer }]}
-        >
-          <AppIcon name={name} size={22} color={color} />
-        </View>
-      );
+    function TabIcon({ color }: { color: ColorValue }) {
+      return <AppIcon name={name} size={23} color={color} />;
     };
 
   return (
@@ -38,8 +32,8 @@ export default function TabsLayout() {
         tabBarInactiveTintColor: theme.colors.onSurfaceVariant,
         tabBarStyle: {
           height: TAB_BAR_HEIGHT + insets.bottom,
-          paddingTop: 6,
-          paddingBottom: insets.bottom + 6,
+          paddingTop: 8,
+          paddingBottom: insets.bottom + 8,
           backgroundColor: theme.colors.surface,
           borderTopColor: theme.colors.outlineVariant,
           borderTopWidth: StyleSheet.hairlineWidth,
@@ -72,13 +66,3 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  iconDisc: {
-    width: 46,
-    height: 30,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});

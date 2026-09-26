@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 
-import { radius, spacing, useLayout } from '@/theme/layout';
+import { cardShadow, hairline, radius, spacing, useLayout } from '@/theme/layout';
+import type { AppTheme } from '@/theme/theme';
 
 interface SectionCardProps {
   title?: string;
@@ -10,6 +11,8 @@ interface SectionCardProps {
   action?: ReactNode;
   /** Tints the card, for the one number that matters most on a screen. */
   tone?: 'default' | 'primary';
+  /** Drops the border and shadow, for a card nested inside another card. */
+  flat?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -17,20 +20,28 @@ interface SectionCardProps {
  * A bordered surface with an optional heading.
  *
  * Cards are the app's only container, so they carry the rhythm: one radius, one
- * border, one padding. Flat with a hairline rather than a shadow, because a
- * shadow on a light background is the fastest way to make a clean screen look
- * cheap.
+ * border, one padding, one shadow. Flat with a hairline plus a very soft shadow
+ * rather than a hard drop shadow, because a hard shadow on a light background is
+ * the fastest way to make a clean screen look cheap.
  */
-export function SectionCard({ title, children, action, tone = 'default', style }: SectionCardProps) {
-  const theme = useTheme();
+export function SectionCard({
+  title,
+  children,
+  action,
+  tone = 'default',
+  flat = false,
+  style,
+}: SectionCardProps) {
+  const theme = useTheme<AppTheme>();
   return (
     <View
       style={[
         styles.card,
         {
           backgroundColor: tone === 'primary' ? theme.colors.primaryContainer : theme.colors.surface,
-          borderColor: theme.colors.outlineVariant,
+          borderColor: tone === 'primary' ? 'transparent' : theme.colors.outlineVariant,
         },
+        flat ? null : cardShadow,
         style,
       ]}
     >
@@ -71,7 +82,7 @@ interface InfoRowProps {
  * length the layout assumed.
  */
 export function InfoRow({ label, value, tone = 'default', divider = true }: InfoRowProps) {
-  const theme = useTheme();
+  const theme = useTheme<AppTheme>();
   const color = tone === 'muted' ? theme.colors.onSurfaceVariant : theme.colors.onSurface;
   const { isCompact } = useLayout();
 
@@ -99,14 +110,14 @@ export function InfoRow({ label, value, tone = 'default', divider = true }: Info
 }
 
 export function Divider() {
-  const theme = useTheme();
+  const theme = useTheme<AppTheme>();
   return <View style={[styles.divider, { backgroundColor: theme.colors.outlineVariant }]} />;
 }
 
 const styles = StyleSheet.create({
   card: {
     borderRadius: radius.lg,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: hairline,
     padding: spacing.lg,
     gap: spacing.md,
   },
@@ -123,10 +134,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.xs,
     paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: hairline,
   },
   label: { flexShrink: 1, minWidth: 96 },
   value: { flexShrink: 1, textAlign: 'right', fontWeight: '600' },
   valueCompact: { textAlign: 'left' },
-  divider: { height: StyleSheet.hairlineWidth, marginVertical: spacing.sm },
+  divider: { height: hairline, marginVertical: spacing.sm },
 });

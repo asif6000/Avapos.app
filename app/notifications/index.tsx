@@ -10,7 +10,7 @@ import { ListRow } from '@/components/ui/ListRow';
 import { useMarkAllNotificationsRead } from '@/hooks/queries';
 import { useNotificationSource } from '@/hooks/useDataSources';
 import { useTranslation } from '@/hooks/useTheme';
-import { radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
+import { cardShadow, radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { formatDateTime } from '@/utils/format';
 import type { AppNotification } from '@/types/domain';
 import { resolveDeepLink } from '@/services/notifications';
@@ -110,6 +110,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     overflow: 'hidden',
+    ...cardShadow,
   },
   dot: { width: 8, height: 8, borderRadius: 4 },
 });

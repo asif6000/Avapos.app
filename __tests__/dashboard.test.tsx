@@ -122,7 +122,10 @@ describe('Dashboard screen', () => {
 
     expect(await view.findByText('Assalamu alaikum, Ayesha Rahman')).toBeTruthy();
     expect(view.getByTestId('dashboard-remaining').props.children).toBe('৳18,500');
-    expect(view.getByText('৳2,500')).toBeTruthy();
+    // The due banner, not a text search: the monthly amount is legitimately the
+    // same figure, so "৳2,500" now appears twice on a screen that is telling the
+    // truth about both.
+    expect(view.getByTestId('dashboard-next-amount').props.children).toBe('৳2,500');
     expect(view.getByText('Samsung Galaxy A15')).toBeTruthy();
   });
 

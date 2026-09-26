@@ -1,14 +1,18 @@
 import { render, userEvent } from '@testing-library/react-native';
+import { View } from 'react-native';
 import { PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { DueBanner } from '@/components/DueBanner';
 import { ErrorState, EmptyState } from '@/components/StateViews';
 import { InfoRow, SectionCard } from '@/components/SectionCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { Field } from '@/components/ui/Field';
 import { ListRow } from '@/components/ui/ListRow';
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs';
 import { StatTile } from '@/components/ui/StatTile';
-import { MIN_TAP_TARGET } from '@/theme/layout';
+import { StepDisc } from '@/components/ui/StepDisc';
+import { MIN_TAP_TARGET, radius } from '@/theme/layout';
 import { lightTheme } from '@/theme/theme';
 
 /**
@@ -39,6 +43,18 @@ function numbersIn(style: unknown): number[] {
     );
   }
   return [];
+}
+
+/** The same, keeping the keys: for asserting a specific flex or colour token. */
+function flatten(style: unknown): Record<string, unknown> {
+  if (Array.isArray(style)) {
+    return style.reduce<Record<string, unknown>>(
+      (acc, item) => Object.assign(acc, flatten(item)),
+      {},
+    );
+  }
+  if (style && typeof style === 'object') return style as Record<string, unknown>;
+  return {};
 }
 
 describe('AppButton', () => {
@@ -114,6 +130,83 @@ describe('InfoRow', () => {
 
     expect(view.getByText('DEVICE')).toBeTruthy();
     expect(view.getByLabelText('Model: SM-A155F')).toBeTruthy();
+  });
+});
+
+describe('the pieces a screen is assembled from', () => {
+  it('gives a stat tile a basis it can shrink, so a row of them stays on screen', async () => {
+    // A `flexBasis` of 100% cannot shrink: a row of four figures silently ran off
+    // the right edge, and the total price was simply not on the screen.
+    const view = await renderWithTheme(<StatTile label="Remaining" value="৳18,500" testID="tile" />);
+    const style = flatten(view.getByTestId('tile').props.style);
+    expect(style.flexBasis).toBe('46%');
+    expect(style.flexShrink).toBe(1);
+    expect(style.flexGrow).toBe(1);
+  });
+
+  it('marks a step as done, current or upcoming, and says which in words too', async () => {
+    const view = await renderWithTheme(
+      <View style={{ flexDirection: 'row' }}>
+        <StepDisc number={1} state="done" />
+        <StepDisc number={2} state="current" />
+        <StepDisc number={3} />
+      </View>,
+    );
+
+    // A done step is a tick, not a number, so the column cannot be read as a
+    // countdown; the numbers that are left are the ones still to come.
+    expect(view.getByText('2')).toBeTruthy();
+    expect(view.getByText('3')).toBeTruthy();
+    expect(view.queryByText('1')).toBeNull();
+  });
+
+  it('offers the same shape of button whatever the variant', async () => {
+    const filled = await renderWithTheme(<AppButton label="Pay now" onPress={jest.fn()} testID="filled" />);
+    const inverse = await renderWithTheme(
+      <AppButton variant="inverse" label="Pay now" onPress={jest.fn()} testID="inverse" />,
+    );
+
+    const filledRadius = flatten(filled.getByTestId('filled').parent?.props.style).borderRadius;
+    const inverseRadius = flatten(inverse.getByTestId('inverse').parent?.props.style).borderRadius;
+    expect(filledRadius).toBe(inverseRadius);
+    expect(filledRadius).toBe(radius.pill);
+    // The one that sits on a blue banner has to be legible against it.
+    expect(flatten(inverse.getByTestId('inverse').parent?.props.style).backgroundColor).toBe('#FFFFFF');
+  });
+
+  it('shows a due amount at full width on a phone rather than truncating it', async () => {
+    const view = await renderWithTheme(
+      <DueBanner
+        label="Next installment due"
+        amount="৳2,500"
+        dueLabel="Due date"
+        dueValue="10 Oct 2026"
+        ctaLabel="Pay now"
+        onPress={jest.fn()}
+        testID="due-amount"
+      />,
+    );
+
+    expect(view.getByTestId('due-amount').props.children).toBe('৳2,500');
+    expect(view.getByText('Pay now')).toBeTruthy();
+  });
+
+  it('tells the segments apart and reports the chosen one', async () => {
+    const onChange = jest.fn();
+    const view = await renderWithTheme(
+      <SegmentedTabs
+        segments={[
+          { key: 'schedule', label: 'Installment schedule' },
+          { key: 'details', label: 'Details' },
+        ]}
+        value="schedule"
+        onChange={onChange}
+      />,
+    );
+
+    expect(view.getByTestId('segment-schedule').props.accessibilityState).toMatchObject({ selected: true });
+    await userEvent.press(view.getByTestId('segment-details'));
+    expect(onChange).toHaveBeenCalledWith('details');
   });
 });
 

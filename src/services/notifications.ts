@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 
 import { endpoints } from '@/api/endpoints';
 import { queryClient } from '@/api/queryClient';
+import { palette } from '@/theme/theme';
 import { deviceManagementService } from './deviceManagement';
 import type { AppNotification, NotificationType } from '@/types/domain';
 
@@ -37,7 +38,7 @@ export async function registerForPushNotifications(): Promise<PushTokenRegistrat
       name: 'Account alerts',
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#0B6B5B',
+      lightColor: palette.primary,
     });
   }
 

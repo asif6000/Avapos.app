@@ -113,10 +113,26 @@ bundled asset.
 
 ## Design system
 
-One source for spacing, radii and touch targets: `src/theme/layout.ts`. Screens
-do not invent their own numbers — a gap, a radius and a minimum target come from
-`spacing`, `radius` and `MIN_TAP_TARGET` (48dp, which is the difference between a
-button you can hit while walking and one you cannot).
+One source for colour, spacing, radii, depth and touch targets:
+`src/theme/theme.ts` and `src/theme/layout.ts`. Screens do not invent their own
+numbers — a gap, a radius, a shadow and a minimum target come from `spacing`,
+`radius`, `cardShadow` / `raisedShadow` and `MIN_TAP_TARGET` (48dp, which is the
+difference between a button you can hit while walking and one you cannot).
+
+**One blue, used everywhere.** A customer reading this app is worried about money,
+so the palette is a single professional blue on a cool near-white page
+(`palette.surfaceLight`), with green reserved for "paid", amber for "due" and red
+for "overdue". `AppTheme` adds the four `success*` slots MD3 has no place for,
+because borrowing `primaryContainer` for "paid" made a paid row look like a
+selected tab. Anything that needs a colour not in the theme is a bug, not a
+decision.
+
+Consistency is the point, and it is enforced by having exactly one of each thing:
+one header, one button, one card, one row, one badge, one action bar. A screen
+that needs a new shape adds it **to the shared component**, so the next screen
+inherits it. Two ad-hoc variants were removed for this reason and must not come
+back: paper's `FAB` (replaced by `ActionBar`, which cannot cover the last row of a
+list) and paper's `List` on Settings (replaced by `SectionCard` + `ListRow`).
 
 Responsive behaviour is a component, not a per-screen decision. `useLayout()`
 reports the window width and `Container` caps content at 720dp and centres it, so
@@ -128,13 +144,23 @@ The shared building blocks, and what they are for:
 
 | Component | Use it for |
 | --- | --- |
-| `AppButton` | Every button. Five variants, two sizes, always a 48dp ripple |
+| `AppHeader` | The bar at the top of every screen. `tone="primary"` (the default) is the solid blue band; `surface` is the quiet variant for a screen whose own card already owns the top |
+| `AppButton` | Every button. Six variants (`inverse` is the white pill on a blue banner), two sizes, always a 48dp ripple |
+| `ActionBar` | The one action a screen exists to offer, pinned to the bottom. Payments and Support |
 | `Field` | Every input. Label above, validation message in the same place |
 | `ListRow` | Every list row: title, detail, trailing value, chevron only if it goes somewhere |
-| `StatTile` | A number with its label — money, dates, counts |
+| `StatTile` | A number with its label — money, dates, counts. `variant="plain"` is a hairline-separated column inside a card |
 | `SectionCard` / `InfoRow` | The only container and the only label/value pair |
-| `StatusBadge` | Server-provided state. The dot carries the emphasis, so the text is sentence case |
+| `StatusBadge` | Server-provided state. The dot or glyph carries the emphasis, so the text is sentence case |
+| `DueBanner` | The next installment, its date and the button to pay it. Appears on more than one screen and must not drift |
+| `DeviceSummaryCard` | Which phone the account is about, and what it cost |
+| `StepDisc` | Where a customer is in a sequence: tick for done, brand blue for current, grey for upcoming |
+| `SegmentedTabs` | The in-screen tab strip. Scrolls rather than truncating its labels |
+| `InfoBanner` | A short quiet note under the content. A footnote, not another card |
 | `EmptyState` / `ErrorState` | Nothing to show, and something that failed. `ErrorState` offers sign-out where the customer is signed in, so a broken screen is never a dead end |
+
+`docs/design/installments-screen.png` is the reference the Installments tab was
+built to, and the layout the rest of the app is being brought in line with.
 
 ## The admin panel
 

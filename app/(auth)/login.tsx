@@ -7,9 +7,11 @@ import { Snackbar, Text, useTheme } from 'react-native-paper';
 import { z } from 'zod';
 
 import { Screen } from '@/components/Screen';
+import { AppIcon } from '@/components/AppIcon';
+import { SectionCard } from '@/components/SectionCard';
 import { AppButton } from '@/components/ui/AppButton';
 import { Field } from '@/components/ui/Field';
-import { spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
+import { radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
 import { isValidEmail, maskEmail } from '@/utils/format';
@@ -67,80 +69,81 @@ export default function LoginScreen() {
       >
         <View style={[styles.container, { paddingHorizontal: gutter }]}>
           <View style={styles.header}>
-            <Text
-              variant="headlineMedium"
-              style={{ color: theme.colors.primary, fontWeight: '700' }}
-            >
+            <View style={[styles.mark, { backgroundColor: theme.colors.primary }]}>
+              <AppIcon name="cellphone-check" size={30} color="#FFFFFF" />
+            </View>
+            <Text variant="headlineSmall" style={[styles.brand, { color: theme.colors.onSurface }]}>
               {t('common.appName')}
             </Text>
-            <Text variant="titleMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
               {t('auth.signIn')}
             </Text>
           </View>
 
-          <Controller
-            control={control}
-            name="email"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <Field
-                label={t('auth.email')}
-                placeholder="name@example.com"
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                keyboardType="email-address"
-                autoComplete="email"
-                autoCapitalize="none"
-                error={Boolean(errors.email)}
-                helper={
-                  errors.email
-                    ? errors.email?.message === 'email'
-                      ? t('auth.invalidEmail')
-                      : t('common.required')
-                    : null
-                }
-                testID="login-email"
-              />
-            )}
-          />
+          <SectionCard>
+            <Controller
+              control={control}
+              name="email"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <Field
+                  label={t('auth.email')}
+                  placeholder="name@example.com"
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  error={Boolean(errors.email)}
+                  helper={
+                    errors.email
+                      ? errors.email?.message === 'email'
+                        ? t('auth.invalidEmail')
+                        : t('common.required')
+                      : null
+                  }
+                  testID="login-email"
+                />
+              )}
+            />
 
-          <Controller
-            control={control}
-            name="password"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <Field
-                label={t('auth.password')}
-                value={value}
-                onChangeText={onChange}
-                onBlur={onBlur}
-                secureTextEntry
-                autoComplete="current-password"
-                error={Boolean(errors.password)}
-                helper={errors.password ? t('common.required') : null}
-                testID="login-password"
-              />
-            )}
-          />
+            <Controller
+              control={control}
+              name="password"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <Field
+                  label={t('auth.password')}
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                  secureTextEntry
+                  autoComplete="current-password"
+                  error={Boolean(errors.password)}
+                  helper={errors.password ? t('common.required') : null}
+                  testID="login-password"
+                />
+              )}
+            />
 
-          <AppButton
-            size="lg"
-            block
-            label={t('auth.signIn')}
-            loading={submitting}
-            disabled={submitting}
-            testID="login-submit"
-            onPress={onSubmit}
-          />
+            <AppButton
+              size="lg"
+              block
+              label={t('auth.signIn')}
+              loading={submitting}
+              disabled={submitting}
+              testID="login-submit"
+              onPress={onSubmit}
+            />
+          </SectionCard>
 
           <View style={styles.footer}>
             <AppButton variant="text" label={t('auth.noAccount')} onPress={() => router.push('/(auth)/register')} />
           </View>
 
           {lastEmail ? (
-            <Text variant="bodySmall" style={styles.note}>
+            <Text variant="bodySmall" style={[styles.note, { color: theme.colors.onSurfaceVariant }]}>
               {t('auth.welcomeBack', { email: maskEmail(lastEmail) })}
-            </Text>
-          ) : null}
+            </Text>          ) : null}
         </View>
       </KeyboardAvoidingView>
 
@@ -164,7 +167,16 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xxl,
     gap: spacing.xs,
   },
-  header: { marginBottom: spacing.xl, gap: 2 },
+  header: { marginBottom: spacing.xl, gap: spacing.xs, alignItems: 'center' },
+  mark: {
+    width: 60,
+    height: 60,
+    borderRadius: radius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  brand: { fontWeight: '800', letterSpacing: -0.4 },
   footer: { marginTop: spacing.md, alignItems: 'center' },
   note: { textAlign: 'center', marginTop: spacing.lg },
 });

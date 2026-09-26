@@ -166,25 +166,37 @@ export default function DeviceRestrictionScreen() {
               </SectionCard>
             ) : null}
 
-            <AppButton
-              onPress={() => router.push('/payments/create')}
-              testID="restriction-pay-now"
-             label={t('dashboard.payNow')} />
-            <AppButton
-              variant="outline"
-              onPress={() => router.push('/(tabs)/support')}
-             label={t('device.contactSupport')} />
-            <AppButton
-              loading={checking}
-              onPress={() => void onCheckNow()}
-              testID="restriction-check-now"
-             label={checking ? t('device.checkingIn') : t('device.checkNow')} />
-            <AppButton
-              variant="text"
-              loading={sync.isPending}
-              onPress={() => void refresh()}
-              testID="restriction-refresh"
-             label={t('device.refreshStatus')} />
+            <View style={styles.actions}>
+              <AppButton
+                block
+                size="lg"
+                onPress={() => router.push('/payments/create')}
+                testID="restriction-pay-now"
+                label={t('dashboard.payNow')}
+              />
+              <AppButton
+                block
+                variant="outline"
+                onPress={() => router.push('/(tabs)/support')}
+                label={t('device.contactSupport')}
+              />
+              <AppButton
+                block
+                variant="tonal"
+                loading={checking}
+                onPress={() => void onCheckNow()}
+                testID="restriction-check-now"
+                label={checking ? t('device.checkingIn') : t('device.checkNow')}
+              />
+              <AppButton
+                block
+                variant="text"
+                loading={sync.isPending}
+                onPress={() => void refresh()}
+                testID="restriction-refresh"
+                label={t('device.refreshStatus')}
+              />
+            </View>
           </>
         )}
       </ScrollView>
@@ -201,5 +213,5 @@ function cap(action: string): string {
 const styles = StyleSheet.create({
   content: { width: '100%', maxWidth: CONTENT_MAX_WIDTH, alignSelf: 'center', padding: 0, gap: 12, paddingBottom: 40 },
   headerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.md },
-  buttonContent: { height: 52 },
+  actions: { gap: spacing.sm },
 });

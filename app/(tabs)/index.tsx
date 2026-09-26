@@ -7,6 +7,7 @@ import { AppButton } from '@/components/ui/AppButton';
 import { StatTile } from '@/components/ui/StatTile';
 import { AppIcon } from '@/components/AppIcon';
 import { AppHeader } from '@/components/AppHeader';
+import { DueBanner } from '@/components/DueBanner';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { DashboardSkeleton } from '@/components/Skeleton';
 import { deviceStateBadge } from '@/components/StatusBadge';
@@ -82,6 +83,7 @@ export default function DashboardScreen() {
         action={{
           icon: 'bell-outline',
           label: t('notifications.title'),
+          badge: data?.unreadNotificationCount,
           onPress: () => router.push('/notifications'),
         }}
       />
@@ -103,22 +105,22 @@ export default function DashboardScreen() {
           {t('dashboard.greeting', { name: profile?.fullName ?? '' })}
         </Text>
 
-        <SectionCard style={styles.heroCard} tone="primary">
+        <SectionCard style={styles.heroCard}>
           <View style={styles.heroHeader}>
             <View style={styles.heroTitle}>
               <Text
                 variant="labelMedium"
                 numberOfLines={1}
-                style={{ color: theme.colors.onPrimaryContainer }}
+                style={{ color: theme.colors.onSurfaceVariant }}
               >
                 {device?.name ?? t('dashboard.noDevice')}
               </Text>
               <Text
-                variant="displaySmall"
+                variant="headlineMedium"
                 numberOfLines={1}
                 adjustsFontSizeToFit
                 minimumFontScale={0.7}
-                style={{ color: theme.colors.onPrimaryContainer, fontWeight: '800', letterSpacing: -1 }}
+                style={[styles.heroAmount, { color: theme.colors.primary }]}
                 testID="dashboard-remaining"
               >
                 {formatCurrency(plan?.remainingAmount ?? 0, { compact: true })}
@@ -131,39 +133,37 @@ export default function DashboardScreen() {
 
           <View style={styles.metricRow}>
             <StatTile
-              label={t('dashboard.nextInstallment')}
-              value={formatCurrency(next?.amount ?? plan?.installmentAmount ?? 0)}
+              label={t('installments.totalPrice')}
+              value={formatCurrency(plan?.totalPrice ?? 0)}
             />
             <StatTile
-              label={t('dashboard.dueDate')}
-              value={next?.dueDate ? formatDate(next.dueDate, language) : '—'}
+              label={t('installments.installmentAmount')}
+              value={formatCurrency(plan?.installmentAmount ?? 0)}
             />
           </View>
 
-          <View style={styles.primaryActions}>
-            <AppButton
-              size="lg"
-              block
-              icon="cash-plus"
-              label={t('dashboard.payNow')}
-              testID="dashboard-pay"
-              onPress={() =>
-                router.push(
-                  next
-                    ? { pathname: '/payments/create', params: { installmentId: next.id } }
-                    : '/payments',
-                )
-              }
-            />
-            <AppButton
-              variant="outline"
-              block
-              icon="cellphone"
-              label={t('dashboard.myDevice')}
-              onPress={() => router.push('/(tabs)/device')}
-            />
-          </View>
+          <AppButton
+            variant="outline"
+            block
+            icon="cellphone"
+            label={t('dashboard.myDevice')}
+            onPress={() => router.push('/(tabs)/device')}
+          />
         </SectionCard>
+
+        {next ? (
+          <DueBanner
+            label={t('installments.nextDueTitle')}
+            amount={formatCurrency(next.amount)}
+            dueLabel={t('installments.dueDate')}
+            dueValue={next.dueDate ? formatDate(next.dueDate, language) : '—'}
+            ctaLabel={t('dashboard.payNow')}
+            onPress={() =>
+              router.push({ pathname: '/payments/create', params: { installmentId: next.id } })
+            }
+            testID="dashboard-next-amount"
+          />
+        ) : null}
 
         {plan ? (
           <SectionCard title={t('installments.title')}>
@@ -275,8 +275,8 @@ const styles = StyleSheet.create({
   heroCard: { gap: spacing.lg },
   heroHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
   heroTitle: { flex: 1, gap: 2, minWidth: 0 },
+  heroAmount: { fontWeight: '800', letterSpacing: -1 },
   metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  primaryActions: { gap: spacing.sm },
   secondaryActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   quickAction: {
     flexGrow: 1,

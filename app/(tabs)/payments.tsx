@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
-import { FAB, useTheme } from 'react-native-paper';
+import { useTheme } from 'react-native-paper';
 
+import { ActionBar } from '@/components/ActionBar';
 import { AppHeader } from '@/components/AppHeader';
 import { ListRow } from '@/components/ui/ListRow';
 import { ListSkeleton } from '@/components/Skeleton';
@@ -10,7 +11,7 @@ import { EmptyState, ErrorState } from '@/components/StateViews';
 import { usePayments } from '@/hooks/queries';
 import { useTranslation } from '@/hooks/useTheme';
 import { useAuthStore } from '@/store/authStore';
-import { radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
+import { cardShadow, radius, spacing, useLayout, CONTENT_MAX_WIDTH } from '@/theme/layout';
 import { formatCurrency, formatDateTime, paymentStatusLabel } from '@/utils/format';
 import type { Payment } from '@/types/domain';
 
@@ -65,7 +66,11 @@ export default function PaymentHistoryScreen() {
             >
               <ListRow
                 title={formatCurrency(item.amount)}
-                subtitle={`${formatDateTime(item.paidAt ?? item.createdAt, language)} · ${item.method}`}
+                // `method` is whatever the gateway reported and is absent on some
+                // orders; printing "undefined" beside a payment is not an option.
+                subtitle={[formatDateTime(item.paidAt ?? item.createdAt, language), item.method]
+                  .filter(Boolean)
+                  .join(' · ')}
                 trailingNode={paymentStatusBadge(item.status, paymentStatusLabel(item.status, t))}
                 icon={item.status === 'SUCCESS' ? 'check-circle-outline' : 'alert-circle-outline'}
                 onPress={() => router.push({ pathname: '/payments/[id]', params: { id: item.id } })}
@@ -75,12 +80,11 @@ export default function PaymentHistoryScreen() {
         />
       )}
 
-      <FAB
+      <ActionBar
         icon="cash-plus"
         label={t('payments.payNow')}
-        style={styles.fab}
         onPress={() => router.push('/payments/create')}
-        testID="payments-fab"
+        testID="payments-pay"
       />
     </View>
   );
@@ -95,6 +99,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: 'hidden',
+    ...cardShadow,
   },
-  fab: { position: 'absolute', right: spacing.lg, bottom: spacing.lg },
 });
