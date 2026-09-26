@@ -34,7 +34,7 @@
 
 import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
@@ -75,6 +75,76 @@ if (LISTEN_HOST !== '127.0.0.1' && LISTEN_HOST !== 'localhost' && !process.argv.
   console.error(`Refusing to bind ${LISTEN_HOST}. Pass --allow-remote if you really mean it.`);
   process.exit(1);
 }
+
+/**
+ * Warns when the bundle it is about to serve predates the source.
+ *
+ * WHY THIS IS WORTH THE THIRTY LINES
+ *
+ * `dist/` wins over Expo, and it wins silently. So after any change to the app,
+ * `npm run dev:mock:proxy` keeps serving the export that was there before — and
+ * the browser renders a build that no longer matches the code, with a fix visible
+ * in the terminal and absent from the screen. That is exactly how a finished
+ * change looks like it did nothing.
+ *
+ * It is a warning and not a refusal. A stale bundle is still a usable bundle, and
+ * the person driving this knows whether they are testing an old build on purpose.
+ * What they must not be able to do is be surprised by one.
+ */
+function newestMtime(dir, depth = 0) {
+  if (depth > 6) return 0;
+  let newest = 0;
+  let entries = [];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, newestMtime(full, depth + 1));
+    } else {
+      try {
+        newest = Math.max(newest, statSync(full).mtimeMs);
+      } catch {
+        // a file that vanished mid-walk is not a reason to refuse to serve
+      }
+    }
+  }
+  return newest;
+}
+
+function warnIfStaleBundle() {
+  if (!STATIC_DIR) return;
+  const sourceNewest = Math.max(
+    newestMtime(resolve('src')),
+    newestMtime(resolve('app')),
+  );
+  let builtAt = 0;
+  try {
+    builtAt = statSync(STATIC_DIR).mtimeMs;
+  } catch {
+    return;
+  }
+  if (sourceNewest > builtAt) {
+    const minutes = Math.round((sourceNewest - builtAt) / 60000);
+    console.warn('');
+    console.warn(`  WARNING  dist/ is older than src/ and app/ by ~${minutes} min.`);
+    console.warn('  The browser will be served the OLD build, not the code you just changed.');
+    console.warn('  Rebuild it:');
+    console.warn('    EXPO_PUBLIC_SUPABASE_URL=same-origin \\');
+    console.warn('    EXPO_PUBLIC_API_BASE_URL=same-origin/customer \\');
+    console.warn('    EXPO_PUBLIC_SUPABASE_ANON_KEY=local-dev-anon-key \\');
+    console.warn('    EXPO_PUBLIC_SUPABASE_READS_ENABLED=true \\');
+    console.warn('    npx expo export -p web --output-dir dist');
+    console.warn('  Or delete dist/ to fall through to Expo, which is always current.');
+    console.warn('');
+  }
+}
+
+warnIfStaleBundle();
 
 function isMockPath(pathname) {
   return MOCK_PREFIXES.some(
