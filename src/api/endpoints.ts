@@ -13,6 +13,7 @@ import type {
   Customer,
   DashboardSummary,
   Device,
+  DeviceReport,
   DeviceStatus,
   Installment,
   InstallmentPlan,
@@ -63,11 +64,27 @@ export function createEndpoints(client: ApiClient) {
       get: () => client.get<Device>('/devices/me'),
       /** [todo] Authoritative device state. Never inferred on the device. */
       status: () => client.get<DeviceStatus>('/devices/me/status'),
-      /** [todo] */
-      enroll: (payload: { agreementVersion: string; signatureName: string; acceptedAt: string }) =>
-        client.post<Device>('/devices/me/enroll', payload),
-      /** [todo] */
-      sync: () => client.post<DeviceStatus>('/devices/me/sync'),
+      /**
+       * Records the signed agreement **and** what this phone says about itself.
+       *
+       * The report is Android's own answer, forwarded so the server can match the
+       * phone to the contract it was sold on. It grants nothing: the server
+       * revalidates the contract, and the customer's access is decided there.
+       */
+      enroll: (payload: {
+        agreementVersion: string;
+        signatureName: string;
+        acceptedAt: string;
+        report: DeviceReport;
+      }) => client.post<Device>('/devices/me/enroll', payload),
+      /**
+       * Tells the server what this phone is and what Android says about it, then
+       * re-reads the authoritative state.
+       *
+       * The order matters: the phone speaks first and the server answers second, so
+       * a response is never the phone grading itself.
+       */
+      sync: (report: DeviceReport) => client.post<DeviceStatus>('/devices/me/sync', { report }),
     },
 
     agreements: {

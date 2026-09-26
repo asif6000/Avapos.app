@@ -66,7 +66,7 @@ export const PRIVACY_SECTIONS: LegalSection[] = [
     heading: 'What we collect',
     body: [
       'Account details: your name, mobile number, and an email address if you provide one.',
-      'Device details: device model, manufacturer, Android version, and a device identifier used to match this phone to your contract. Hardware identifiers such as the IMEI are not displayed in the app.',
+      'Device details: device model, manufacturer, Android version and API level, a device identifier used to match this phone to your contract, and what Android itself reports about which app manages this phone. Hardware identifiers such as the IMEI are not collected or displayed in the app, and the app does not read your location.',
       'Financial details: installment schedule, payment transactions and outstanding balance.',
       'Support details: the tickets you create and our replies to them.',
     ],
@@ -111,7 +111,7 @@ export const MANAGEMENT_AGREEMENT_SECTIONS: LegalSection[] = [
   {
     heading: '2. What we collect',
     body: [
-      'Device model, manufacturer, Android version, and a device identifier so our servers can match this phone to your contract. A record of which version of this agreement you accepted, and when.',
+      'Device model, manufacturer, Android version and API level, a device identifier, and what Android itself reports about which app manages this phone, so our servers can match this phone to your contract and tell you honestly whether it is managed. A record of which version of this agreement you accepted, and when.',
       'We do not collect your location, contacts, SMS, call history, files, camera or microphone.',
     ],
   },

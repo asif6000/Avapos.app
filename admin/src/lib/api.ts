@@ -172,10 +172,39 @@ export const api = {
       body: JSON.stringify({ reason }),
     }),
   devices: (state?: string) => request<{ items: DeviceRecord[] }>(`/devices${state ? `?state=${state}` : ''}`),
+  device: (id: string) => request<DeviceDetail>(`/devices/${encodeURIComponent(id)}`),
   setDeviceState: (id: string, state: string, reason: string) =>
     request<{ device: DeviceRecord }>(`/devices/${encodeURIComponent(id)}/state`, {
       method: 'POST',
       body: JSON.stringify({ state, reason }),
+    }),
+  /**
+   * Asks the phone to do something.
+   *
+   * The answer is a *request* that has been accepted, and the returned command
+   * says so: `outcome` is `REQUESTED` until the device reports otherwise, and this
+   * function never fills that in on the phone's behalf. There is no endpoint here
+   * that marks a command done, for the same reason there is no "mark paid".
+   */
+  deviceCommand: (id: string, action: string, reason: string, confirmation?: string) =>
+    request<{ message: string; command: DeviceCommand }>(`/devices/${encodeURIComponent(id)}/command`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason, confirmation }),
+    }),
+  /** A read, and audited by the server as one, because it is a person's location. */
+  deviceLocation: (id: string) =>
+    request<{ message: string; location: DeviceLocation | null }>(`/devices/${encodeURIComponent(id)}/location`),
+  /**
+   * Sends the customer a reminder about what they owe.
+   *
+   * No amount is sent. The server quotes the figure off the schedule, because a
+   * reminder that quotes a number somebody typed into a browser can quote the
+   * wrong number to a customer about money they owe.
+   */
+  deviceReminder: (id: string, message?: string) =>
+    request<{ message: string }>(`/devices/${encodeURIComponent(id)}/reminder`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
     }),
   tickets: (status?: string) => request<{ items: TicketRecord[] }>(`/tickets${status ? `?status=${status}` : ''}`),
   replyToTicket: (id: string, response: string) =>
@@ -248,6 +277,18 @@ export interface DeviceRecord {
   isManaged: boolean;
   contractId: string;
   lastSyncAt: string | null;
+  /**
+   * `PHONE` when a handset described this row, `DEMO` when nothing has.
+   *
+   * The panel marks demo data on the row, and it has to: an operator deciding
+   * whether to lock somebody's phone must never be looking at a phone that does
+   * not exist. The server decides this and the panel does not get to guess.
+   */
+  source: 'PHONE' | 'DEMO';
+  /** When the handset last described itself, and which install sent the report. */
+  reportedAt: string | null;
+  reportedBy: string | null;
+  androidId: string | null;
 }
 
 export interface TicketRecord {
@@ -293,4 +334,49 @@ export interface CustomerDetail {
     paidInstallments: number;
     totalInstallments: number;
   };
+}
+
+/** One button's worth of information, as the server describes it. */
+export interface DeviceCommandSpec {
+  action: string;
+  label: string;
+  needsConfirmation: boolean;
+  destructive: boolean;
+}
+
+/**
+ * A request made of a phone, and what the phone said.
+ *
+ * `outcome` is the interesting field and the panel is careful with it:
+ * `REQUESTED` means a person asked and the phone has not answered yet, which is
+ * the common case, because a phone is usually somewhere else when a button is
+ * pressed. `outcomeAt` and `reportedBy` stay null until the device fills them in.
+ */
+export interface DeviceCommand {
+  id: string | null;
+  action: string | null;
+  outcome: 'REQUESTED' | 'APPLIED' | 'FAILED' | 'REFUSED';
+  reason: string | null;
+  requestedAt: string | null;
+  outcomeAt: string | null;
+  outcomeNote: string | null;
+  reportedBy: string | null;
+}
+
+export interface DeviceLocation {
+  latitude: number;
+  longitude: number;
+  accuracyMetres: number | null;
+  reportedAt: string;
+}
+
+export interface DeviceDetail {
+  device: DeviceRecord;
+  customer: { id: string; fullName: string; phone: string } | null;
+  canCommand: boolean;
+  /** Why nothing is available, in a shop's terms. Never null when canCommand is false. */
+  blocker: string | null;
+  commands: DeviceCommandSpec[];
+  location: DeviceLocation | null;
+  history: DeviceCommand[];
 }

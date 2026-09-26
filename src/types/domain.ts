@@ -119,6 +119,32 @@ export interface DeviceStatus {
   unlockAuthorizedAt: string | null;
 }
 
+/**
+ * What this phone says about itself.
+ *
+ * Every field is Android's own answer, forwarded so the server can match the phone
+ * to the contract it was sold on — and so an operator looking at a device knows
+ * which handset they are actually looking at rather than a row somebody typed.
+ * These are exactly the fields the consent screen lists, and no more: there is no
+ * IMEI, no serial, no advertising id, and no location.
+ *
+ * A report is a **report**. It grants nothing. The server revalidates the contract
+ * and decides access on its own; a phone that reports `ENROLLED` does not thereby
+ * become enrolled, and one that reports `NOT_ENROLLED` is not accused of anything.
+ */
+export interface DeviceReport {
+  androidId: string;
+  manufacturer: string;
+  model: string;
+  androidVersion: string;
+  /** Android's API level. Part of "which Android", and not a separate secret. */
+  sdkInt: number | null;
+  /** What Android says about who manages this phone. A fact about the phone. */
+  managed: boolean;
+  managementStatus: ManagementStatus;
+  enrollmentStatus: EnrollmentStatus;
+}
+
 export interface Installment {
   id: string;
   contractId: string;

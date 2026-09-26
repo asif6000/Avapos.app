@@ -265,6 +265,128 @@ describe('every part of the panel is one tap away', () => {
   });
 });
 
+/**
+ * What the panel may ask of a customer's phone.
+ *
+ * A financed phone is managed by an enterprise DPC the *store* provisioned. So
+ * every button here is a request, and the properties that matter are all about
+ * what the panel is prevented from claiming:
+ *
+ * - a press is a request, and the record says `REQUESTED` until the phone answers
+ * - there is no route that marks a command done, for the same reason there is no
+ *   "mark this payment paid"
+ * - a phone the store never provisioned is refused, not faked
+ * - the two irreversible commands cost a typed confirmation
+ * - the reminder's figure comes from the schedule, never from the browser
+ * - a phone cannot write `APPLIED` onto its own row through PostgREST
+ */
+describe('the panel may ask a phone, but cannot answer for it', () => {
+  const service = readFileSync(
+    path.join(ROOT, 'backend/app/Services/Devices/DeviceCommandService.php'),
+    'utf8',
+  );
+  const actions = readFileSync(
+    path.join(ROOT, 'backend/app/Http/Controllers/Admin/AdminActionController.php'),
+    'utf8',
+  );
+  const reads = readFileSync(
+    path.join(ROOT, 'backend/app/Http/Controllers/Admin/AdminReadController.php'),
+    'utf8',
+  );
+  const routes = readFileSync(path.join(ROOT, 'backend/routes/admin-api.php'), 'utf8');
+  const panelApi = read('src/lib/api.ts');
+  const panels = read('src/screens/panels.tsx');
+  const sql = readFileSync(path.join(ROOT, 'sql/05-device-commands.sql'), 'utf8');
+
+  it('records a request, and nothing but a request', () => {
+    // A row is born REQUESTED. The service has no method that changes it, apart
+    // from the one the device's own check-in calls.
+    expect(service).toContain("'outcome' => 'REQUESTED'");
+    expect(service).toContain('public function reportOutcome(');
+  });
+
+  it('cannot mark a command done from the panel', () => {
+    // The one place `APPLIED` may be written is the device reporter, and the
+    // controller is not it. The audit record says REQUESTED as well, so the trail
+    // does not claim the phone did something it had not yet reported doing.
+    expect(actions).not.toContain('APPLIED');
+    expect(actions).toContain("'outcome' => 'REQUESTED'");
+    // And no route offers it.
+    expect(routes).not.toMatch(/devices\/\{id\}\/[^']*(done|apply|confirm|outcome)/i);
+  });
+
+  it('refuses a phone that cannot be asked, and says why', () => {
+    // Not a 500 and not a cheerful "done": a refusal a person at a counter can act
+    // on, because a shop phone the store never provisioned really cannot lock.
+    expect(service).toContain('public function blockerFor(');
+    expect(service).toContain('This phone is not managed, so it cannot be asked to do anything.');
+    // Both facts have to hold: the agent and the paperwork.
+    expect(service).toContain('is_managed');
+    expect(service).toContain("!== 'ENROLLED'");
+    expect(actions).toContain("'status' => 'refused'");
+  });
+
+  it('needs a reason for every press, and a confirmation for the two that stick', () => {
+    expect(actions).toContain("'reason' => ['required', 'string', 'min:4', 'max:280']");
+    // RELEASE and UNINSTALL cannot be taken back from anywhere, so the device id
+    // has to be typed at them.
+    expect(service).toContain("'RELEASE' => ['label' => 'Release the device', 'needs_confirmation' => true");
+    expect(service).toContain("'UNINSTALL' => ['label' => 'Uninstall device management', 'needs_confirmation' => true");
+    expect(service).toContain('Type the device id to confirm this one.');
+  });
+
+  it('will not let a phone confirm its own work', () => {
+    // `device_commands` has RLS on and **no** policy, so the publishable key in a
+    // phone can neither read the requests aimed at it nor write APPLIED onto one.
+    // If that insert succeeded, a locked phone could say it had locked itself.
+    expect(sql).toContain('alter table public.device_commands enable row level security;');
+    expect(sql).not.toMatch(/create policy[^;]*device_commands/i);
+    expect(sql).toContain("outcome = 'REQUESTED'");
+  });
+
+  it('makes the outcome impossible to leave half-answered', () => {
+    // An outcome with no time and no speaker is not an outcome.
+    expect(sql).toContain('device_commands_reported_check');
+    expect(sql).toMatch(/outcome = 'REQUESTED'\s*\n\s*or \(outcome_at is not null and reported_by is not null\)/);
+  });
+
+  it('writes down a location lookup, because a read of a person is not free', () => {
+    expect(reads).toContain("'action' => 'device.location.read'");
+    expect(routes).toContain("devices/{id}/location");
+  });
+
+  it('quotes the schedule in a reminder, never a number from the browser', () => {
+    // The panel sends no amount: it cannot, and that is the point. A reminder that
+    // quotes a typed figure can quote the wrong figure to a customer about money
+    // they owe.
+    expect(panelApi).toContain('deviceReminder: (id: string, message?: string)');
+    expect(panelApi).toMatch(/deviceReminder[\s\S]*?JSON\.stringify\(\{ message \}\)/);
+    expect(actions).toContain('Installment::query()');
+    expect(actions).not.toMatch(/\$request->input\('amount'/);
+  });
+
+  it('takes its buttons from the server rather than inventing them', () => {
+    // A button for something the server would refuse is a button that lies, and a
+    // list in the panel would drift from the service that enforces it.
+    expect(reads).toContain('private function commandCatalogue()');
+    expect(reads).toContain('DeviceCommandService::COMMANDS');
+    expect(panels).toContain('commands.filter(');
+    expect(panels).toContain('data.canCommand');
+  });
+
+  it('says out loud that a press is not a result', () => {
+    expect(panels).toContain('What the phone reported');
+    expect(panels).toContain('not answered yet, so it has not happened');
+    // And it shows the blocker rather than leaving four dead buttons.
+    expect(panels).toContain('Nothing can be asked of this phone.');
+  });
+
+  it('opens a phone from the list, and from one place only', () => {
+    expect(panels).toContain('onClick={() => onOpen(device.id)}');
+    expect(read('src/App.tsx')).toContain('<DeviceDetailView id={deviceId}');
+  });
+});
+
 describe('the admin API', () => {
   const routes = readFileSync(path.join(ROOT, 'backend/routes/admin-api.php'), 'utf8');
   const middleware = readFileSync(

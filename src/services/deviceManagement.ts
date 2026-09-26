@@ -8,7 +8,13 @@ import {
   type NativeEnrollmentStatus,
   type NativeManagementStatus,
 } from '@/native/deviceManagement';
-import type { DeviceState, DeviceStatus, EnrollmentStatus, ManagementStatus } from '@/types/domain';
+import type {
+  DeviceReport,
+  DeviceState,
+  DeviceStatus,
+  EnrollmentStatus,
+  ManagementStatus,
+} from '@/types/domain';
 
 export interface DeviceIdentity {
   appId: string;
@@ -17,6 +23,8 @@ export interface DeviceIdentity {
   androidVersion: string;
   /** Non-sensitive install identity used to match this phone to its contract. */
   androidId: string;
+  /** Android's API level. Part of "which Android", and not a separate secret. */
+  sdkInt: number | null;
 }
 
 export interface DeviceManagementSnapshot {
@@ -56,6 +64,7 @@ class DeviceManagementServiceImpl {
           androidVersion:
             identifiers.androidVersion || String(Device.osVersion ?? 'unknown'),
           androidId: identifiers.androidId,
+          sdkInt: typeof identifiers.sdkInt === 'number' ? identifiers.sdkInt : null,
         };
       } catch {
         // fall through to the JavaScript path
@@ -67,6 +76,9 @@ class DeviceManagementServiceImpl {
       model: Device.modelName ?? 'Unknown',
       androidVersion: String(Device.osVersion ?? 'unknown'),
       androidId: '',
+      // Without the native module there is no API level to report, and guessing one
+      // from a version string would be inventing a fact about the phone.
+      sdkInt: null,
     };
   }
 
@@ -113,9 +125,43 @@ class DeviceManagementServiceImpl {
     }
   }
 
+  /**
+   * Tells the server what this phone is and what Android says about it.
+   *
+   * This is the only path by which the handset's real model, Android version and
+   * identifier reach the backend, and it is the reason an operator looking at a
+   * device is looking at *a phone* rather than a row somebody typed. The report
+   * grants nothing: the server revalidates the contract and answers second, so a
+   * phone is never the thing that grades itself.
+   *
+   * It always returns a report. When the native module is missing — Expo Go, or a
+   * device where Android would not answer — the unknown fields say so, because a
+   * phone that could not describe itself is worth more in the record than a phone
+   * that was never asked.
+   */
+  async reportSelf(): Promise<DeviceReport> {
+    const [identity, managed, managementStatus, enrollmentStatus] = await Promise.all([
+      this.getIdentity(),
+      this.isDeviceManaged(),
+      this.getManagementStatus(),
+      this.getEnrollmentStatus(),
+    ]);
+
+    return {
+      androidId: identity.androidId,
+      manufacturer: identity.manufacturer,
+      model: identity.model,
+      androidVersion: identity.androidVersion,
+      sdkInt: identity.sdkInt,
+      managed,
+      managementStatus,
+      enrollmentStatus,
+    };
+  }
+
   async syncDeviceStatus(): Promise<DeviceStatus | null> {
     try {
-      return await endpoints.device.sync();
+      return await endpoints.device.sync(await this.reportSelf());
     } catch {
       return null;
     }
@@ -131,7 +177,9 @@ class DeviceManagementServiceImpl {
     signatureName: string;
     acceptedAt: string;
   }): Promise<{ deviceState: DeviceState | null; nativeOutcome: EnrollmentStatus }> {
-    await endpoints.device.enroll(input);
+    // The report goes with the agreement, so the phone that was consented on is
+    // the phone the server knows about from the first request onwards.
+    await endpoints.device.enroll({ ...input, report: await this.reportSelf() });
     const nativeOutcome = await this.getEnrollmentStatus();
     const status = await endpoints.device.status().catch(() => null);
     return { deviceState: status?.deviceState ?? null, nativeOutcome };

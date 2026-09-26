@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Customer;
 use App\Models\CustomerPayment;
 use App\Models\Device;
+use App\Models\Installment;
 use App\Models\SupportTicket;
+use App\Services\Devices\DeviceCommandService;
 use App\Services\Payments\HttpPaymentGateway;
 use App\Services\Payments\PaymentProcessor;
 use Illuminate\Http\JsonResponse;
@@ -123,6 +125,140 @@ class AdminActionController extends Controller
                 'id' => $device->id,
                 'state' => $device->fresh()->state,
             ],
+        ]);
+    }
+
+    /**
+     * Asks a phone to do something.
+     *
+     * The press is a **request**, and the response says so. The device applies the
+     * command on its next check-in and reports back; nothing in this method, and
+     * nothing in the panel, can turn a request into a completed action — a phone
+     * that is switched off does not unlock because a button was pressed.
+     *
+     * Two refusals are possible and both are written down. A phone that cannot be
+     * asked anything is refused, and so is a release or an uninstall whose
+     * confirmation does not match: somebody trying to end a customer's management
+     * is exactly what an operator wants to be able to see afterwards.
+     */
+    public function deviceCommand(Request $request, string $id): JsonResponse
+    {
+        $data = $request->validate([
+            'action' => ['required', Rule::in(array_keys(DeviceCommandService::COMMANDS))],
+            'reason' => ['required', 'string', 'min:4', 'max:280'],
+            'confirmation' => ['sometimes', 'nullable', 'string', 'max:64'],
+        ]);
+
+        $device = Device::query()->where('id', $id)->first();
+
+        if (! $device) {
+            return response()->json(['status' => 'error', 'message' => 'No such device.'], 404);
+        }
+
+        $result = (new DeviceCommandService())
+            ->issue($device, $data['action'], $data['reason'], $data['confirmation'] ?? null);
+
+        if (($result['status'] ?? null) !== 'ok') {
+            $this->audit($request, 'device.command.refused', $id, $data['reason'], [
+                'action' => $data['action'],
+                'why' => $result['message'] ?? 'Refused.',
+            ]);
+
+            // 409, not 400: the request was well formed and the server is choosing
+            // not to carry it. 422 would say the admin typed something wrong.
+            return response()->json([
+                'status' => 'refused',
+                'message' => $result['message'] ?? 'That was refused.',
+            ], 409);
+        }
+
+        $this->audit($request, 'device.command', $id, $data['reason'], [
+            'action' => $data['action'],
+            'command' => $result['command']['id'] ?? null,
+            // Written as REQUESTED, in the record as well as the answer. The audit
+            // trail must not claim the phone did something it has not yet said it
+            // did.
+            'outcome' => 'REQUESTED',
+        ]);
+
+        return response()->json([
+            'status' => 'ok',
+            'message' => $result['message'],
+            'command' => $result['command'],
+        ]);
+    }
+
+    /**
+     * Sends the customer a reminder about what they owe.
+     *
+     * The figure is **computed here**, from the schedule, and the panel cannot
+     * supply one. A reminder that quotes a number somebody typed into a browser is
+     * a reminder that can quote the wrong number to a customer about money they
+     * owe, which is the kind of message a financing app must never be able to
+     * produce.
+     */
+    public function deviceReminder(Request $request, string $id): JsonResponse
+    {
+        $device = Device::query()->where('id', $id)->first();
+
+        if (! $device) {
+            return response()->json(['status' => 'error', 'message' => 'No such device.'], 404);
+        }
+
+        $request->validate([
+            'message' => ['sometimes', 'string', 'max:600'],
+        ]);
+
+        $due = Installment::query()
+            ->where('customer_key', $device->customer_key)
+            ->whereIn('status', ['PARTIAL', 'OVERDUE', 'UPCOMING'])
+            ->orderBy('number')
+            ->get()
+            ->first(fn ($i) => (float) $i->amount - (float) $i->paid_amount > 0);
+
+        if (! $due) {
+            // Nothing outstanding is not a reason to send a reminder about money
+            // that is not owed.
+            $this->audit($request, 'device.reminder.skipped', $id, 'Nothing outstanding');
+
+            return response()->json([
+                'status' => 'skipped',
+                'message' => 'This plan is fully paid, so there is nothing to remind them about.',
+            ], 409);
+        }
+
+        $outstanding = (float) $due->amount - (float) $due->paid_amount;
+        $title = 'Installment due';
+
+        $message = trim((string) $request->input('message', '')) !== ''
+            ? trim((string) $request->input('message'))
+            : sprintf(
+                'Your installment %d has ৳%s outstanding%s. Please pay it in the app.',
+                $due->number,
+                number_format($outstanding, 2, '.', ''),
+                $due->due_date ? ' and it was due on ' . $due->due_date : '',
+            );
+
+        $notificationId = DB::table('notifications')->insertGetId([
+            'id' => 'notif-' . bin2hex(random_bytes(8)),
+            'customer_key' => $device->customer_key,
+            'type' => 'INSTALLMENT_DUE_SOON',
+            'title' => $title,
+            'message' => $message,
+            'is_read' => false,
+            'reference_id' => $due->getKey(),
+            'created_at' => now(),
+        ]);
+
+        $this->audit($request, 'device.reminder', $id, $title, [
+            'installment' => $due->number,
+            'outstanding' => $outstanding,
+        ]);
+
+        return response()->json([
+            'status' => 'ok',
+            'id' => $notificationId,
+            'message' => 'Sent. It appears in that customer\'s app, quoting the amount on their schedule.',
         ]);
     }
 

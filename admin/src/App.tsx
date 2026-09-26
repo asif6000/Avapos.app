@@ -6,6 +6,7 @@ import {
   CustomerDetailView,
   Customers,
   Dashboard,
+  DeviceDetailView,
   Devices,
   Notifications,
   Payments,
@@ -55,6 +56,7 @@ export function App() {
   const { identity, checking, signOut } = useSessionValue();
   const [tab, setTab] = useState<Tab>('dashboard');
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
 
   // A desk has a sidebar and needs no drawer; opening one there would be a
@@ -93,12 +95,26 @@ export function App() {
   const go = (next: Tab) => {
     setTab(next);
     setCustomerId(null);
+    setDeviceId(null);
     setDrawer(false);
   };
 
   const openCustomer = (id: string) => {
     setCustomerId(id);
+    setDeviceId(null);
     setTab('customers');
+    setDrawer(false);
+  };
+
+  /**
+   * Opening a phone from anywhere — the list, a customer's page, a payment — lands
+   * on the same screen, because there is one of those decisions in this panel and
+   * it should have one address.
+   */
+  const openDevice = (id: string) => {
+    setDeviceId(id);
+    setCustomerId(null);
+    setTab('devices');
     setDrawer(false);
   };
 
@@ -180,7 +196,9 @@ export function App() {
       ) : null}
 
       <main className="main" style={styles.main}>
-        {customerId ? (
+        {deviceId ? (
+          <DeviceDetailView id={deviceId} onBack={() => setDeviceId(null)} />
+        ) : customerId ? (
           <CustomerDetailView id={customerId} onBack={() => setCustomerId(null)} />
         ) : tab === 'dashboard' ? (
           <>
@@ -199,8 +217,8 @@ export function App() {
           </>
         ) : tab === 'devices' ? (
           <>
-            <PageHead title="Devices" sub="What Android reports about each phone. A state change happens on the customer's page, where a reason is required." />
-            <Devices />
+            <PageHead title="Devices" sub="What Android reports about each phone, and what can be asked of it. Open one to act; every action needs a reason." />
+            <Devices onOpen={openDevice} />
           </>
         ) : tab === 'tickets' ? (
           <>

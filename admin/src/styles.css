@@ -270,6 +270,40 @@ input, textarea, select { font: inherit; }
   .pageTitle { font-size: 19px; }
 }
 
+/* ------------------------------------------------------------- live marker */
+
+/*
+ * How live this screen is. The dot pulses and the text counts from the last
+ * completed request, so a panel that has stopped updating says so rather than
+ * looking busy.
+ */
+.liveMark {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.liveDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liveDot { animation: none; }
+}
+
 /* -------------------------------------------------------------- utilities */
 
 .tnum { font-variant-numeric: tabular-nums; }

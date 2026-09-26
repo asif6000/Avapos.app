@@ -97,7 +97,7 @@ export const en = {
       'Phones sold on installments stay linked to your account until the plan is paid. Device management lets us protect the phone and your investment if the plan is overdue. It also prevents theft while you still own the device.',
     dataTitle: 'What information is collected',
     dataBody:
-      'Device model, manufacturer, Android version and a device identifier so our servers can match this phone to your contract. We do not collect your location, contacts, SMS, call history, files, camera or microphone.',
+      'Device model, manufacturer, Android version and API level, a device identifier, and what Android itself reports about who manages this phone — so our servers can match this phone to your contract, and can tell you honestly whether it is managed. We do not collect your location, contacts, SMS, call history, files, camera or microphone.',
     featuresTitle: 'What management allows',
     featuresBody:
       'Where Android officially supports it, an enterprise-managed device can be locked or unlocked by us, and we can apply a password screen. On a normal phone bought from a shop, these controls are not available and the app will say so.',

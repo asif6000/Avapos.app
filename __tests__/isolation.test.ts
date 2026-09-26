@@ -6,6 +6,19 @@ import { createEndpoints } from '@/api/endpoints';
 
 const ROOT = path.resolve(__dirname, '..');
 
+/** What a phone says about itself, forwarded so the server can match it. */
+const REPORT = {
+  androidId: 'a1b2c3d4e5f6a7b8',
+  manufacturer: 'Samsung',
+  model: 'Galaxy A15 5G',
+  androidVersion: '14',
+  sdkInt: 34,
+  managed: false,
+  managementStatus: 'NOT_ENROLLED' as const,
+  enrollmentStatus: 'NOT_ENROLLED' as const,
+};
+
+
 /**
  * Customer data isolation.
  *
@@ -76,10 +89,15 @@ describe('customer data isolation', () => {
     } as unknown as Response);
 
     await api.device.status();
-    await api.device.sync();
+    await api.device.sync(REPORT);
 
     const urls = fetchImpl.mock.calls.map(([url]) => url);
     expect(urls).toEqual([`${BASE}/devices/me/status`, `${BASE}/devices/me/sync`]);
+
+    // A report describes the phone; it does not choose which phone is being read.
+    // The URL is still `me`, so the token is the only thing scoping this.
+    const sent = JSON.parse(String(fetchImpl.mock.calls[1][1]?.body ?? '{}'));
+    expect(Object.keys(sent)).toEqual(['report']);
   });
 
   it('surfaces a 403 when the backend refuses a cross-customer request', async () => {

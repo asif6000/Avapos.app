@@ -38,6 +38,10 @@ Route::prefix('admin/api')
         Route::get('customers/{id}', [AdminReadController::class, 'customer']);
         Route::get('payments', [AdminReadController::class, 'payments']);
         Route::get('devices', [AdminReadController::class, 'devices']);
+        Route::get('devices/{id}', [AdminReadController::class, 'deviceDetail']);
+        // A read that is audited, because it is somebody's location being looked
+        // at by a member of staff.
+        Route::get('devices/{id}/location', [AdminReadController::class, 'deviceLocation']);
         Route::get('tickets', [AdminReadController::class, 'tickets']);
         Route::get('notifications', [AdminReadController::class, 'notifications']);
         Route::get('audit', [AdminReadController::class, 'audit']);
@@ -47,6 +51,12 @@ Route::prefix('admin/api')
         // told to. Device changes and ticket replies need a reason.
         Route::post('payments/{id}/reverify', [AdminActionController::class, 'reverifyPayment']);
         Route::post('devices/{id}/state', [AdminActionController::class, 'deviceState']);
+        // A device command is a *request*. There is no route that marks one done —
+        // the phone reports its own outcome, and the shape of the group above means
+        // a route added later cannot forget the admin check.
+        Route::post('devices/{id}/command', [AdminActionController::class, 'deviceCommand']);
+        // The reminder quotes the schedule's own figure; the panel cannot supply one.
+        Route::post('devices/{id}/reminder', [AdminActionController::class, 'deviceReminder']);
         Route::post('tickets/{id}/reply', [AdminActionController::class, 'replyToTicket']);
         Route::post('notifications', [AdminActionController::class, 'sendNotification']);
     });

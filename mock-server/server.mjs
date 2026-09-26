@@ -132,12 +132,21 @@ const devices = [
     device_name: 'Samsung Galaxy A15 5G',
     manufacturer: 'Samsung',
     model: 'Galaxy A15 5G',
-    android_version: 'Android 14 (API 34)',
+    android_version: '14',
+    android_sdk: 34,
     contract_id: 'CONTRACT-BD-2026-902',
     enrollment_status: 'ENROLLED',
     management_status: 'MANAGED_BY_ENTERPRISE',
     state: 'ACTIVE',
     last_sync_time: '2026-09-25T09:00:00.000Z',
+    // DEMO, and it says so. This row was written here so the panel has something
+    // to open before any phone has reported in; no handset produced it. The
+    // moment the customer's app syncs, `recordDeviceReport` replaces it with what
+    // that phone actually said about itself.
+    source: 'DEMO',
+    android_id: null,
+    reported_at: null,
+    reported_by: null,
     is_managed: true,
     created_at: '2026-01-04T09:20:00.000Z',
   },
@@ -851,23 +860,7 @@ async function handleCustomer(request, response, url) {
         verifiedAt: customer.created_at,
         createdAt: customer.created_at,
       },
-      device: device
-        ? {
-            id: device.id,
-            name: device.device_name,
-            manufacturer: device.manufacturer,
-            model: device.model,
-            androidVersion: device.android_version,
-            enrollmentStatus: device.enrollment_status,
-            managementStatus: device.management_status,
-            deviceState: device.state,
-            lastSyncedAt: device.last_sync_time,
-            contractId: device.contract_id,
-            agreementVersion: '1.0.0',
-            agreementAcceptedAt: device.created_at,
-            enterpriseManaged: device.is_managed,
-          }
-        : null,
+      device: device ? presentCustomerDevice(device) : null,
       plan: plan.length
         ? {
             contractId: plan[0].contract_id,
@@ -913,21 +906,7 @@ async function handleCustomer(request, response, url) {
     if (!customer) return undefined;
     const device = devices.find((d) => d.customer_key === customer.id);
     if (!device) return error(response, 404, 'not_found', 'Not Found');
-    return json(response, 200, {
-      id: device.id,
-      name: device.device_name,
-      manufacturer: device.manufacturer,
-      model: device.model,
-      androidVersion: device.android_version,
-      enrollmentStatus: device.enrollment_status,
-      managementStatus: device.management_status,
-      deviceState: device.state,
-      lastSyncedAt: device.last_sync_time,
-      contractId: device.contract_id,
-      agreementVersion: '1.0.0',
-      agreementAcceptedAt: device.created_at,
-      enterpriseManaged: device.is_managed,
-    });
+    return json(response, 200, presentCustomerDevice(device));
   }
 
   if (path === '/devices/me/status' && method === 'GET') {
@@ -1004,54 +983,42 @@ async function handleCustomer(request, response, url) {
     return json(response, 200, presentAgreement(record));
   }
 
-  if (path === '/devices/me/enroll' && method === 'POST') {
-    const customer = requireCustomer(request, response);
-    if (!customer) return undefined;
-    const device = devices.find((d) => d.customer_key === customer.id);
-    if (!device) return error(response, 404, 'not_found', 'Not Found');
 
-    // An enrollment attempt is not an enrollment. On a retail phone Android
-    // grants nothing, so the binding stays *pending* until Android reports a
-    // device owner — which is exactly what the app shows.
-    const agreement = agreements.get(customer.id);
-    device.enrollment_status = 'PENDING';
-    device.management_status = 'PENDING';
-    device.last_sync_time = now;
-    return json(response, 200, {
-      id: device.id,
-      name: device.device_name,
-      manufacturer: device.manufacturer,
-      model: device.model,
-      androidVersion: device.android_version,
-      enrollmentStatus: device.enrollment_status,
-      managementStatus: device.management_status,
-      deviceState: device.state,
-      lastSyncedAt: device.last_sync_time,
-      contractId: device.contract_id,
-      agreementVersion: agreement?.agreement_version ?? '1.0.0',
-      agreementAcceptedAt: agreement?.accepted_at ?? null,
-      enterpriseManaged: false,
-    });
-  }
+if (path === '/devices/me/enroll' && method === 'POST') {
+  const customer = requireCustomer(request, response);
+  if (!customer) return undefined;
 
-  if (path === '/devices/me/sync' && method === 'POST') {
-    const customer = requireCustomer(request, response);
-    if (!customer) return undefined;
-    const device = devices.find((d) => d.customer_key === customer.id);
-    if (!device) return error(response, 404, 'not_found', 'Not Found');
-    device.last_sync_time = now;
-    return json(response, 200, {
-      deviceState: device.state,
-      enrollmentStatus: device.enrollment_status,
-      managementStatus: device.management_status,
-      lastSyncedAt: device.last_sync_time,
-      serverTime: now,
-      outstandingAmount: outstandingFor(customer),
-      dueDate: nextDueFor(customer),
-      restrictionReason: null,
-      unlockAuthorizedAt: null,
-    });
-  }
+  // The agreement is recorded first, and the phone's own description of itself
+  // travels with it — so the handset that was consented on is the handset the
+  // server knows about from the very first request.
+  const agreement = agreements.get(customer.id);
+  const device = recordDeviceReport(customer, body.report);
+
+  // An enrollment attempt is not an enrollment. On a retail phone Android grants
+  // nothing, so the binding stays *pending* until the store's provisioning makes
+  // the phone a device owner — which is exactly what the app shows.
+  device.enrollment_status = 'PENDING';
+  device.management_status = 'PENDING';
+
+  return json(response, 200, presentCustomerDevice(device));
+}
+
+if (path === '/devices/me/sync' && method === 'POST') {
+  const customer = requireCustomer(request, response);
+  if (!customer) return undefined;
+  const device = recordDeviceReport(customer, body.report);
+  return json(response, 200, {
+    deviceState: device.state,
+    enrollmentStatus: device.enrollment_status,
+    managementStatus: device.management_status,
+    lastSyncedAt: device.last_sync_time,
+    serverTime: now,
+    outstandingAmount: outstandingFor(customer),
+    dueDate: nextDueFor(customer),
+    restrictionReason: null,
+    unlockAuthorizedAt: null,
+  });
+}
 
   if (path === '/installments' && method === 'GET') {
     const customer = requireCustomer(request, response);
@@ -1489,13 +1456,207 @@ function presentInstallment(row) {
 
 /** The states an admin may put a phone into, and nothing else. */
 const DEVICE_STATES = [
-'ACTIVE',
-'PAYMENT_DUE',
-'GRACE_PERIOD',
-'RESTRICTED',
-'UNLOCKED',
-'SUSPENDED',
+  'ACTIVE',
+  'PAYMENT_DUE',
+  'GRACE_PERIOD',
+  'RESTRICTED',
+  'UNLOCKED',
+  'SUSPENDED',
 ];
+
+  /** "Android 14 (API 34)" — how both the app and the panel show a version. */
+const androidLabel = (d) => {
+  if (!d.android_version || d.android_version === 'unknown') return 'unknown';
+  if (d.android_sdk) return `Android ${d.android_version} (API ${d.android_sdk})`;
+  return d.android_version;
+};
+
+/**
+ * Turns what a phone said about itself into a stored record of that phone.
+ *
+ * The customer is resolved from the session token and the device is then described
+ * by the phone — never the other way round. A row created here is a phone that
+ * actually reported in: its model, its Android version and its identifier came off
+ * the handset, and `reported_at` is when it said them.
+ *
+ * One asymmetry, and it is the whole point of the function.
+ *
+ * A phone's report is believed in the direction that matters. If a handset says
+ * Android has no device owner, it has none, and `is_managed` comes down
+ * immediately — because showing an operator a "Lock" button for a phone that
+ * nobody can lock is the worst answer this screen could give.
+ *
+ * The other direction is not open. A customer app cannot report its way *into*
+ * being managed, because `is_managed` is the store's provisioning: the enterprise
+ * DPC that owns the phone, which is a different app entirely. A phone claiming
+ * `MANAGED_BY_ENTERPRISE` changes what the panel displays about what the phone
+ * said; it does not change what the panel will allow.
+ */
+function recordDeviceReport(customer, report) {
+  const at = new Date().toISOString();
+  const existing = devices.find((d) => d.customer_key === customer.id);
+  const described = report && typeof report === 'object';
+
+  // Only a real phone's record is kept across reports. A demo row is adopted by
+  // the first phone that reports in, and a second customer never inherits the
+  // first one's handset.
+  const target = existing ?? {
+    id: `DEV-${(report?.androidId || customer.id).slice(0, 8).toUpperCase()}`,
+    customer_key: customer.id,
+    contract_id: 'CONTRACT-BD-2026-902',
+    state: 'ACTIVE',
+    created_at: at,
+    source: 'DEMO',
+    android_id: null,
+    reported_at: null,
+    reported_by: null,
+  };
+
+  if (described) {
+    // A phone has now described itself, so this row is no longer demo data —
+    // whatever it started life as.
+    target.source = 'PHONE';
+    target.manufacturer = report.manufacturer || target.manufacturer || 'Unknown';
+    target.model = report.model || target.model || 'Unknown';
+    target.android_version = report.androidVersion || target.android_version || 'unknown';
+    target.android_sdk = Number.isFinite(report.sdkInt) ? report.sdkInt : target.android_sdk ?? null;
+    target.device_name = [target.manufacturer, target.model].filter(Boolean).join(' ');
+    target.android_id = report.androidId || target.android_id || null;
+
+    // What Android says about the phone is a fact about the phone, and the phone
+    // is the only authority on it — so it is recorded as reported.
+    target.enrollment_status = report.enrollmentStatus || target.enrollment_status;
+    target.management_status = report.managementStatus || target.management_status;
+
+    // ...and believed downwards, never upwards. See the note above.
+    const reportedManaged = report.managed === true || report.managementStatus === 'MANAGED_BY_ENTERPRISE';
+    target.is_managed = target.is_managed === true && reportedManaged;
+
+    target.reported_by = customer.email;
+  }
+
+  target.reported_at = at;
+  target.last_sync_time = at;
+  if (!devices.includes(target)) devices.push(target);
+
+  return target;
+}
+
+const presentCustomerDevice = (d) => ({
+  id: d.id,
+  name: d.device_name,
+  manufacturer: d.manufacturer,
+  model: d.model,
+  androidVersion: androidLabel(d),
+  enrollmentStatus: d.enrollment_status,
+  managementStatus: d.management_status,
+  deviceState: d.state,
+  lastSyncedAt: d.last_sync_time,
+  contractId: d.contract_id,
+  agreementVersion: agreements.get(d.customer_key)?.agreement_version ?? '1.0.0',
+  agreementAcceptedAt: agreements.get(d.customer_key)?.accepted_at ?? null,
+  enterpriseManaged: d.is_managed === true,
+});
+/**
+ * What may be asked of a phone, and what each one costs to ask.
+ *
+ * The same table as `DeviceCommandService::COMMANDS` in the backend, and it has to
+ * match: the panel is told which buttons exist from the server, and a demo that
+ * offered a button the real server would refuse would teach the wrong thing.
+ */
+const DEVICE_COMMANDS = {
+  LOCK: { label: 'Lock the screen', needsConfirmation: false, destructive: false },
+  UNLOCK: { label: 'Unlock the device', needsConfirmation: false, destructive: false },
+  RELEASE: { label: 'Release the device', needsConfirmation: true, destructive: true },
+  UNINSTALL: { label: 'Uninstall device management', needsConfirmation: true, destructive: true },
+};
+
+/** Every request an admin has made of a phone, and what the phone said back. */
+const deviceCommands = [];
+
+/** The last position a phone reported, and the ones before it. */
+const deviceLocations = [
+  {
+    id: 1,
+    device_id: 'DEV-SAM-A15-098',
+    latitude: 23.8103,
+    longitude: 90.4125,
+    accuracy_metres: 35,
+    reported_at: '2026-09-25T09:02:00.000Z',
+    reported_by: 'device',
+  },
+];
+
+/**
+ * Whether a phone can be asked anything at all.
+ *
+ * Both facts have to hold. A phone that was wiped and re-provisioned can still
+ * report a familiar state while having no management agent behind it, so the agent
+ * is checked first and the paperwork second. A retail phone the store never
+ * provisioned reports `NOT_ENROLLED`, and Android will not let anybody lock,
+ * uninstall or hand it back — so the answer here is a refusal with a reason, never
+ * a cheerful "done".
+ */
+function deviceBlocker(device) {
+  const hasAgent = Boolean(device.is_managed) || device.management_status === 'MANAGED_BY_ENTERPRISE';
+
+  if (!hasAgent) {
+    return 'This phone is not managed, so it cannot be asked to do anything. '
+      + 'Android only allows this to a device the store provisioned as a device owner, '
+      + 'and a customer app cannot do that to itself.';
+  }
+  if (device.enrollment_status !== 'ENROLLED') {
+    return 'This phone has a management agent but is not enrolled, so there is nothing to carry the request.';
+  }
+  return null;
+}
+
+const presentDeviceCommand = (c) => ({
+  id: c.id,
+  action: c.action,
+  outcome: c.outcome,
+  reason: c.reason,
+  requestedAt: c.requested_at,
+  outcomeAt: c.outcome_at,
+  outcomeNote: c.outcome_note,
+  reportedBy: c.reported_by,
+});
+
+/**
+ * The device's own policy agent answering.
+ *
+ * This is the mock standing in for the **phone**, not for the admin. The real
+ * version is `DeviceCommandService::reportOutcome()`, called from the device's next
+ * check-in and from nowhere else — there is no admin route that sets an outcome,
+ * because a button that could mark its own work done would make "locked" a thing
+ * somebody in an office decided rather than a thing that happened.
+ *
+ * Two of the four commands change what the phone *is*, so the answer has to: a
+ * released or uninstalled device stops being askable, and the panel will say so on
+ * the next read rather than carrying on offering buttons.
+ */
+function phoneAppliesCommand(device, command) {
+  if (command.action === 'RELEASE') {
+    device.is_managed = false;
+    device.management_status = 'RELEASED';
+    device.enrollment_status = 'RELEASED';
+    device.state = 'UNLOCKED';
+  }
+  if (command.action === 'UNINSTALL') {
+    device.is_managed = false;
+    device.management_status = 'UNINSTALLED';
+    device.enrollment_status = 'UNINSTALLED';
+  }
+
+  command.outcome = 'APPLIED';
+  command.outcome_at = new Date().toISOString();
+  command.reported_by = device.id;
+  command.outcome_note = command.action === 'UNINSTALL'
+    ? 'The management agent was removed. This phone cannot be reached again.'
+    : 'Applied by the device policy agent on the phone.';
+  device.last_sync_time = command.outcome_at;
+}
+
 
 const presentAdminCustomer = (c) => ({
 id: c.id,
@@ -1508,19 +1669,28 @@ createdAt: c.created_at,
 });
 
 const presentAdminDevice = (d) => ({
-id: d.id,
-customerKey: d.customer_key,
-name: d.device_name,
-manufacturer: d.manufacturer,
-model: d.model,
-androidVersion: d.android_version,
-state: d.state,
-enrollmentStatus: d.enrollment_status,
-managementStatus: d.management_status,
-isManaged: Boolean(d.is_managed),
-contractId: d.contract_id,
-lastSyncAt: d.last_sync_time,
+  id: d.id,
+  customerKey: d.customer_key,
+  name: d.device_name,
+  manufacturer: d.manufacturer,
+  model: d.model,
+  androidVersion: androidLabel(d),
+  state: d.state,
+  enrollmentStatus: d.enrollment_status,
+  managementStatus: d.management_status,
+  isManaged: Boolean(d.is_managed),
+  contractId: d.contract_id,
+  lastSyncAt: d.last_sync_time,
+  // Whether a phone said this, or it was written here so the panel had something
+  // to open. The panel shows this, because an operator deciding whether to lock
+  // somebody's handset must be able to see that they are looking at demo data.
+  source: d.source === 'PHONE' ? 'PHONE' : 'DEMO',
+  // When the phone last described itself, and which install sent the report.
+  reportedAt: d.reported_at ?? null,
+  reportedBy: d.reported_by ?? null,
+  androidId: d.android_id ?? null,
 });
+
 
 const presentAdminPayment = (row) => ({
 id: row.transaction_id,
@@ -1709,6 +1879,204 @@ if (stateMatch && method === 'POST') {
   device.last_sync_time = now;
   audit(claims.email, 'device.state', device.id, String(body.reason), { from, to: body.state });
   return json(response, 200, { status: 'ok', device: presentAdminDevice(device) });
+}
+
+const deviceDetailMatch = /^\/devices\/([^/]+)$/.exec(path);
+if (deviceDetailMatch && method === 'GET') {
+  const device = devices.find((d) => d.id === decodeURIComponent(deviceDetailMatch[1]));
+  if (!device) return error(response, 404, 'not_found', 'No such device.');
+
+  const customer = SEED_CUSTOMERS.find((c) => c.id === device.customer_key);
+  const latest = deviceLocations
+    .filter((l) => l.device_id === device.id)
+    .sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)))[0];
+
+  return json(response, 200, {
+    device: presentAdminDevice(device),
+    customer: customer
+      ? { id: customer.id, fullName: customer.full_name, phone: customer.phone_number }
+      : null,
+    canCommand: deviceBlocker(device) === null,
+    // Sent in full, because "nothing is available" without a reason is a dead end
+    // at a shop counter.
+    blocker: deviceBlocker(device),
+    commands: Object.entries(DEVICE_COMMANDS).map(([action, c]) => ({
+      action,
+      label: c.label,
+      needsConfirmation: c.needsConfirmation,
+      destructive: c.destructive,
+    })),
+    location: latest
+      ? {
+          latitude: latest.latitude,
+          longitude: latest.longitude,
+          accuracyMetres: latest.accuracy_metres,
+          reportedAt: latest.reported_at,
+        }
+      : null,
+    history: deviceCommands
+      .filter((c) => c.device_id === device.id)
+      .sort((a, b) => String(b.requested_at).localeCompare(String(a.requested_at)))
+      .map(presentDeviceCommand),
+  });
+}
+
+const locationMatch = /^\/devices\/([^/]+)\/location$/.exec(path);
+if (locationMatch && method === 'GET') {
+  const device = devices.find((d) => d.id === decodeURIComponent(locationMatch[1]));
+  if (!device) return error(response, 404, 'not_found', 'No such device.');
+
+  const latest = deviceLocations
+    .filter((l) => l.device_id === device.id)
+    .sort((a, b) => String(b.reported_at).localeCompare(String(a.reported_at)))[0];
+
+  // A read that is audited like a write: reading a customer's own data costs that
+  // customer nothing, but a member of staff looking up where somebody's phone is
+  // is worth leaving a name against.
+  audit(claims.email, 'device.location.read', device.id, null, { found: Boolean(latest) });
+
+  if (!latest) {
+    return json(response, 200, {
+      status: 'empty',
+      message: 'This phone has not reported a location yet. It reports one when it is next online.',
+      location: null,
+    });
+  }
+
+  return json(response, 200, {
+    status: 'ok',
+    location: {
+      latitude: latest.latitude,
+      longitude: latest.longitude,
+      accuracyMetres: latest.accuracy_metres,
+      reportedAt: latest.reported_at,
+    },
+    message: 'Reported by the phone itself.',
+  });
+}
+
+const commandMatch = /^\/devices\/([^/]+)\/command$/.exec(path);
+if (commandMatch && method === 'POST') {
+  const device = devices.find((d) => d.id === decodeURIComponent(commandMatch[1]));
+  if (!device) return error(response, 404, 'not_found', 'No such device.');
+
+  const spec = DEVICE_COMMANDS[body.action];
+  if (!spec) return error(response, 422, 'validation', 'Unknown command.');
+  if (!body.reason || String(body.reason).trim().length < 4) {
+    return error(response, 422, 'validation', 'A reason is required.');
+  }
+
+  // Refused, and said why in a shop's terms rather than a status code. A refusal
+  // is audited too: somebody pressing "unlock" on a phone that cannot be unlocked
+  // is exactly what an operator wants to be able to see afterwards.
+  const blocker = deviceBlocker(device);
+  if (blocker) {
+    audit(claims.email, 'device.command.refused', device.id, String(body.reason), {
+      action: body.action,
+      why: blocker,
+    });
+    return error(response, 409, 'refused', blocker);
+  }
+
+  // The two irreversible ones cost the device id typed back. Not a speed bump for
+  // its own sake: neither can be undone from this screen, or from any screen.
+  if (spec.needsConfirmation && String(body.confirmation ?? '').trim() !== device.id) {
+    audit(claims.email, 'device.command.refused', device.id, String(body.reason), {
+      action: body.action,
+      why: 'Confirmation did not match the device id.',
+    });
+    return error(
+      response,
+      409,
+      'refused',
+      'Type the device id to confirm this one. It cannot be undone from here.',
+    );
+  }
+
+  const command = {
+    id: `cmd-${randomUUID().slice(0, 8)}`,
+    device_id: device.id,
+    action: body.action,
+    // Born REQUESTED. The press is a request, and the row says so before anything
+    // has had a chance to happen.
+    outcome: 'REQUESTED',
+    reason: String(body.reason),
+    requested_by: claims.email,
+    requested_at: new Date().toISOString(),
+    outcome_at: null,
+    outcome_note: null,
+    reported_by: null,
+  };
+  deviceCommands.push(command);
+
+  // Then the phone answers, on its own terms. In production this is the device's
+  // next check-in, which is why a press is a request: a phone that is switched off
+  // has not unlocked. The mock is standing in for a phone that is checked in.
+  phoneAppliesCommand(device, command);
+
+  audit(claims.email, 'device.command', device.id, String(body.reason), {
+    action: body.action,
+    command: command.id,
+    // REQUESTED in the record too: the audit trail must not claim the phone did
+    // something it had not yet reported doing.
+    outcome: 'REQUESTED',
+  });
+
+  return json(response, 200, {
+    status: 'ok',
+    message: spec.destructive
+      ? 'Requested, and it cannot be taken back from here. The phone applies this on its next check-in and reports back when it has.'
+      : 'Requested. The phone applies this on its next check-in, and reports back when it has.',
+    command: presentDeviceCommand(command),
+  });
+}
+
+const reminderMatch = /^\/devices\/([^/]+)\/reminder$/.exec(path);
+if (reminderMatch && method === 'POST') {
+  const device = devices.find((d) => d.id === decodeURIComponent(reminderMatch[1]));
+  if (!device) return error(response, 404, 'not_found', 'No such device.');
+
+  // The figure comes from the schedule, never from the request. A reminder that
+  // quotes a number somebody typed into a browser can quote the wrong number to a
+  // customer about money they owe.
+  const due = installments
+    .filter((i) => i.customer_key === device.customer_key && i.status !== 'PAID')
+    .sort((a, b) => a.number - b.number)
+    .find((i) => i.amount - i.paid_amount > 0);
+
+  if (!due) {
+    audit(claims.email, 'device.reminder.skipped', device.id, 'Nothing outstanding');
+    return error(response, 409, 'skipped', 'This plan is fully paid, so there is nothing to remind them about.');
+  }
+
+  const outstanding = due.amount - due.paid_amount;
+  const typed = String(body.message ?? '').trim();
+  const message = typed
+    || `Your installment ${due.number} has ৳${outstanding.toFixed(2)} outstanding`
+      + `${due.due_date ? ` and it was due on ${due.due_date}` : ''}. Please pay it in the app.`;
+
+  const id = `notif-${randomUUID().slice(0, 8)}`;
+  notifications.unshift({
+    id,
+    customer_key: device.customer_key,
+    type: 'INSTALLMENT_DUE_SOON',
+    title: 'Installment due',
+    message,
+    is_read: false,
+    reference_id: due.id,
+    created_at: new Date().toISOString(),
+  });
+
+  audit(claims.email, 'device.reminder', device.id, 'Installment due', {
+    installment: due.number,
+    outstanding,
+  });
+
+  return json(response, 200, {
+    status: 'ok',
+    id,
+    message: "Sent. It appears in that customer's app, quoting the amount on their schedule.",
+  });
 }
 
 const replyMatch = /^\/tickets\/([^/]+)\/reply$/.exec(path);

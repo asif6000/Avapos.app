@@ -1,7 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { deviceStateLabel, money, relativeTime, ticketStateLabel } from '../lib/format';
-import { api, cardStyle, tokens, useResource, useSessionValue } from '../ui';
+import { api, cardStyle, tokens, useLiveResource, useResource, useSessionValue } from '../ui';
 import type { CustomerSummary, PaymentRecord } from '../lib/api';
 
 /* ----------------------------------------------------------------- primitives */
@@ -484,59 +484,426 @@ export function Payments() {
 
 /* --------------------------------------------------------------------- devices */
 
-export function Devices() {
+/**
+ * "4s ago" — how live this screen is, said out loud.
+ *
+ * A pulsing dot on its own would be theatre: it would animate whether or not
+ * anything was being fetched. This counts from the last completed request, so a
+ * screen that has stopped updating says so rather than looking busy.
+ */
+export function LiveMark({ checkedAt }: { checkedAt: number | null }) {
+  const [, tick] = useState(0);
+
+  // Once a second, so the figure moves even between fetches. A number that only
+  // changes on a refetch reads as broken the other eleven seconds.
+  useEffect(() => {
+    const timer = setInterval(() => tick((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const seconds = checkedAt === null ? null : Math.max(0, Math.round((Date.now() - checkedAt) / 1000));
+
+  return (
+    <span className="liveMark" title="This screen re-reads itself while you watch it">
+      <span className="liveDot" />
+      {seconds === null ? 'checking…' : seconds < 2 ? 'just now' : `${seconds}s ago`}
+    </span>
+  );
+}
+
+export function Devices({ onOpen }: { onOpen: (id: string) => void }) {
   const [state, setState] = useState('');
-  const { data, loading, error, reload } = useResource(() => api.devices(state), [state]);
+  const { data, loading, error, reload, checkedAt } = useLiveResource(
+    () => api.devices(state),
+    [state],
+  );
 
   return (
     <div style={styles.stack}>
-      <div style={styles.buttonRow}>
-        {['', 'ACTIVE', 'PAYMENT_DUE', 'RESTRICTED', 'UNLOCKED'].map((value) => (
-          <button
-            key={value || 'all'}
-            style={state === value ? styles.filterActive : styles.filter}
-            onClick={() => setState(value)}
-          >
-            {value ? deviceStateLabel(value) : 'All'}
-          </button>
-        ))}
+      <div style={styles.headRow}>
+        <div className="buttonRow">
+          {['', 'ACTIVE', 'PAYMENT_DUE', 'RESTRICTED', 'UNLOCKED'].map((value) => (
+            <button
+              key={value || 'all'}
+              style={state === value ? styles.filterActive : styles.filter}
+              onClick={() => setState(value)}
+            >
+              {value ? deviceStateLabel(value) : 'All'}
+            </button>
+          ))}
+        </div>
+        <LiveMark checkedAt={checkedAt} />
       </div>
 
-      {loading ? <Loading /> : null}
-      {error ? <Failure message={error} onRetry={() => void reload()} /> : null}
+      {/* A skeleton only on the first load. Once there is a list, a poll that
+          returns nothing new must not replace it with a loading bar. */}
+      {loading && !data ? <Loading /> : null}
+      {error && !data ? <Failure message={error} onRetry={() => void reload()} /> : null}
       {data ? (
         <section style={cardStyle}>
-          <Table head={['Device', 'Customer', 'State', 'Enrollment', 'Last sync']}>
-            {data.items.map((device) => (
-              <tr key={device.id}>
-                <Cell label="Device">
-                  <strong>{device.name}</strong>
-                  <div style={styles.tdMuted}>{device.androidVersion}</div>
-                </Cell>
-                <Cell label="Customer">{device.customerKey}</Cell>
-                <Cell label="State">
-                  <Pill
-                    label={deviceStateLabel(device.state)}
-                    tone={
-                      device.state === 'RESTRICTED' || device.state === 'SUSPENDED'
-                        ? 'danger'
-                        : device.state === 'ACTIVE' || device.state === 'UNLOCKED'
-                          ? 'ok'
-                          : 'warn'
-                    }
-                  />
-                </Cell>
-                <Cell label="Enrollment" muted>{device.enrollmentStatus}</Cell>
-                <Cell label="Last sync" muted>{relativeTime(device.lastSyncAt)}</Cell>
-              </tr>
-            ))}
-          </Table>
+          {data.items.length === 0 ? (
+            <Empty
+              title="No phones yet"
+              body="A handset appears here the first time that customer's app reports in — with the model and Android version the phone itself gave."
+            />
+          ) : (
+            <Table head={['Device', 'Customer', 'State', 'Enrollment', 'Last sync']}>
+              {data.items.map((device) => (
+                <tr key={device.id}>
+                  <Cell label="Device">
+                    <button style={styles.link} onClick={() => onOpen(device.id)}>
+                      {device.name}
+                    </button>
+                    <div style={styles.tdMuted}>{device.androidVersion}</div>
+                    {device.source === 'PHONE' ? null : (
+                      <div style={styles.tdMuted}>
+                        <Pill label="Demo data" tone="warn" />
+                      </div>
+                    )}
+                  </Cell>
+                  <Cell label="Customer">{device.customerKey}</Cell>
+                  <Cell label="State">
+                    <Pill
+                      label={deviceStateLabel(device.state)}
+                      tone={
+                        device.state === 'RESTRICTED' || device.state === 'SUSPENDED'
+                          ? 'danger'
+                          : device.state === 'ACTIVE' || device.state === 'UNLOCKED'
+                            ? 'ok'
+                            : 'warn'
+                      }
+                    />
+                  </Cell>
+                  <Cell label="Enrollment" muted>
+                    {device.source === 'PHONE'
+                      ? `${device.enrollmentStatus} · said ${relativeTime(device.reportedAt)}`
+                      : device.enrollmentStatus}
+                  </Cell>
+                  <Cell label="Last sync" muted>{relativeTime(device.lastSyncAt)}</Cell>
+                </tr>
+              ))}
+            </Table>
+          )}
           <p style={styles.actionNote}>
-            Device state is changed from a customer's page, where a reason is required. Nothing here
-            can lock or unlock anything.
+            Open a phone to ask it to lock, unlock, report where it is, remind the customer what they
+            owe, or end its management. Each one needs a reason, and what happened is what the phone
+            reported — not what was pressed.
           </p>
         </section>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * One phone, and the things that can be asked of it.
+ *
+ * The arrangement on this screen is the point, so it is worth stating plainly.
+ *
+ * A press is a **request**. Nothing here reports that a phone did anything: the
+ * request goes to the device, the device applies it on its next check-in and
+ * answers in its own words, and the list under "What the phone reported" is that
+ * answer. A request still showing `REQUESTED` has not happened — a phone that is
+ * switched off, out of coverage or on a hotel wi-fi does not unlock because
+ * somebody in an office pressed a key, and this screen does not pretend otherwise.
+ *
+ * The two that cannot be taken back — releasing the phone, and uninstalling the
+ * agent — cost a typed confirmation on top of the reason, because the difference
+ * between a decision and a slip of the mouse is about two seconds of typing.
+ */
+export function DeviceDetailView({ id, onBack }: { id: string; onBack: () => void }) {
+  const { data, loading, error, reload, checkedAt } = useLiveResource(() => api.device(id), [id]);
+  const [note, setNote] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [pending, setPending] = useState<{ action: string; label: string } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  if (loading && !data) return <Loading />;
+  if (error && !data) return <Failure message={error} onRetry={() => void reload()} />;
+  if (!data) return null;
+
+  const { device, customer, commands, blocker, location, history } = data;
+  const askable = commands.filter((command) => !['RELEASE', 'UNINSTALL'].includes(command.action));
+  const ending = commands.filter((command) => ['RELEASE', 'UNINSTALL'].includes(command.action));
+  const confirmMatches = confirmText.trim() === device.id;
+
+  /** Every press needs a reason, and the reason is the point of the record. */
+  const guard = (): boolean => {
+    if (note.trim().length < 4) {
+      setMessage('A reason is required, and it is kept with your name.');
+      return false;
+    }
+    return true;
+  };
+
+  const ask = async (action: string) => {
+    if (!guard()) return;
+    setBusy(action);
+    setMessage(null);
+    try {
+      const result = await api.deviceCommand(device.id, action, note.trim());
+      setMessage(result.message);
+      setNote('');
+      reload();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'That did not work.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const confirmDestructive = async () => {
+    if (!pending || !guard()) return;
+    setBusy(pending.action);
+    setMessage(null);
+    try {
+      const result = await api.deviceCommand(device.id, pending.action, note.trim(), device.id);
+      setMessage(result.message);
+      setNote('');
+      setPending(null);
+      setConfirmText('');
+      reload();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'That did not work.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const findIt = async () => {
+    setBusy('LOCATION');
+    setMessage(null);
+    try {
+      const result = await api.deviceLocation(device.id);
+      setMessage(
+        result.location
+          ? `${result.location.latitude.toFixed(4)}, ${result.location.longitude.toFixed(4)}, reported by the phone ${relativeTime(result.location.reportedAt).toLowerCase()}. This lookup is written to the audit log.`
+          : result.message,
+      );
+      reload();
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'That did not work.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remind = async () => {
+    setBusy('REMINDER');
+    setMessage(null);
+    try {
+      const result = await api.deviceReminder(device.id);
+      setMessage(result.message);
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : 'That did not work.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div style={styles.stack}>
+      <button style={styles.link} onClick={onBack}>
+        ← All devices
+      </button>
+
+      <section style={cardStyle}>
+        <div style={styles.headRow}>
+          <h2 style={styles.h2}>This phone</h2>
+          <LiveMark checkedAt={checkedAt} />
+        </div>
+        <div style={styles.sectionHead}>
+          <div>
+            <h3 style={styles.h3}>{device.name}</h3>
+            {device.source === 'PHONE' ? (
+              <p style={styles.tdMuted}>
+                Reported by the handset {relativeTime(device.reportedAt).toLowerCase()}
+                {device.reportedBy ? ` from ${device.reportedBy}` : ''}. Everything below is what
+                that phone said, not what a seed file says.
+              </p>
+            ) : (
+              <p style={styles.tdMuted}>
+                <Pill label="Demo data" tone="warn" /> No handset has reported this row. It exists so
+                this screen has something to open; the values below were written by a seed file, and
+                the app on the customer's phone will replace them the moment it syncs.
+              </p>
+            )}
+          </div>
+          <Pill
+            label={deviceStateLabel(device.state)}
+            tone={device.state === 'RESTRICTED' || device.state === 'SUSPENDED' ? 'danger' : 'ok'}
+          />
+        </div>
+        <div style={styles.detailGrid}>
+          <span style={styles.muted}>Customer</span>
+          <span>{customer ? `${customer.fullName} · ${customer.id}` : device.customerKey}</span>
+          <span style={styles.muted}>Phone</span>
+          <span>{customer?.phone ?? '—'}</span>
+          <span style={styles.muted}>Android</span>
+          <span>{device.androidVersion}</span>
+          <span style={styles.muted}>Device id</span>
+          <span>{device.id}</span>
+          {device.androidId ? (
+            <>
+              <span style={styles.muted}>Android id</span>
+              <span>{device.androidId}</span>
+            </>
+          ) : null}
+          <span style={styles.muted}>Enrollment</span>
+          <span>{device.enrollmentStatus}</span>
+          <span style={styles.muted}>Management</span>
+          <span>{device.managementStatus}</span>
+          <span style={styles.muted}>Contract</span>
+          <span>{device.contractId}</span>
+          <span style={styles.muted}>Last sync</span>
+          <span>{relativeTime(device.lastSyncAt)}</span>
+        </div>
+      </section>
+
+      {/*
+       * Said here, in full, rather than leaving four dead buttons. A phone the
+       * store never provisioned cannot be asked anything, and an operator needs to
+       * be told *that* in a sentence rather than left to work it out from a
+       * disabled button.
+       */}
+      {blocker ? (
+        <div style={styles.blocker}>
+          <strong>Nothing can be asked of this phone.</strong>
+          <span>{blocker}</span>
+        </div>
+      ) : null}
+
+      <section style={cardStyle}>
+        <h2 style={styles.h2}>Ask this phone</h2>
+        <p style={styles.actionNote}>
+          Each of these is a request the phone applies on its next check-in. A press is not a result:
+          what the phone reported is listed further down, and it is the only thing that counts.
+        </p>
+
+        <input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Reason (required, kept with your name)"
+          style={styles.search}
+        />
+
+        <div style={styles.buttonRow}>
+          {askable.map((command) => (
+            <button
+              key={command.action}
+              style={styles.smallButton}
+              disabled={busy !== null || !data.canCommand}
+              onClick={() => void ask(command.action)}
+            >
+              {busy === command.action ? 'Asking…' : command.label}
+            </button>
+          ))}
+          <button style={styles.smallButton} disabled={busy !== null} onClick={() => void findIt()}>
+            {busy === 'LOCATION' ? 'Looking…' : 'Where is it'}
+          </button>
+          <button style={styles.smallButton} disabled={busy !== null} onClick={() => void remind()}>
+            {busy === 'REMINDER' ? 'Sending…' : 'Send a reminder'}
+          </button>
+        </div>
+
+        {location ? (
+          <p style={styles.actionNote}>
+            Last position the phone gave: {location.latitude.toFixed(4)},{' '}
+            {location.longitude.toFixed(4)}
+            {location.accuracyMetres ? ` (±${Math.round(location.accuracyMetres)} m)` : ''} —{' '}
+            {relativeTime(location.reportedAt).toLowerCase()}. Looking it up is written to the audit
+            log, because it is a person's location.
+          </p>
+        ) : null}
+
+        {message ? <p style={styles.actionMessage}>{message}</p> : null}
+      </section>
+
+      <section style={cardStyle}>
+        <h2 style={styles.h2}>End management</h2>
+        <p style={styles.actionNote}>
+          These two cannot be taken back from here, or from any screen. Once the phone answers, this
+          device can no longer be asked anything at all, and the customer is on their own.
+        </p>
+
+        <div style={styles.buttonRow}>
+          {ending.map((command) => (
+            <button
+              key={command.action}
+              style={styles.dangerSmall}
+              disabled={busy !== null || !data.canCommand}
+              onClick={() => {
+                setMessage(null);
+                setPending({ action: command.action, label: command.label });
+                setConfirmText('');
+              }}
+            >
+              {command.label}
+            </button>
+          ))}
+        </div>
+
+        {pending ? (
+          <div style={styles.confirmBox}>
+            <strong>{pending.label} — this cannot be undone.</strong>
+            <span>
+              Type <code>{device.id}</code> to go ahead. The request goes to the phone; it applies it
+              when it next checks in.
+            </span>
+            <input
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              placeholder={device.id}
+              autoCapitalize="characters"
+              autoCorrect="off"
+              style={styles.search}
+            />
+            <div style={styles.buttonRow}>
+              <button
+                style={styles.dangerSmall}
+                disabled={busy !== null || !confirmMatches || note.trim().length < 4}
+                onClick={() => void confirmDestructive()}
+              >
+                {busy === pending.action ? 'Requesting…' : `Yes, ${pending.label.toLowerCase()}`}
+              </button>
+              <button style={styles.smallButton} disabled={busy !== null} onClick={() => setPending(null)}>
+                Cancel
+              </button>
+            </div>
+            {note.trim().length < 4 ? (
+              <span style={styles.actionNote}>A reason is required before this can be sent.</span>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <section style={cardStyle}>
+        <h2 style={styles.h2}>What the phone reported</h2>
+        {history.length === 0 ? (
+          <Empty title="Nothing asked of it yet" body="No request has been sent to this phone." />
+        ) : (
+          history.map((command) => (
+            <div key={command.id} style={styles.ticket}>
+              <div style={styles.sectionHead}>
+                <strong>{command.action}</strong>
+                <Pill
+                  label={command.outcome}
+                  tone={command.outcome === 'APPLIED' ? 'ok' : command.outcome === 'REQUESTED' ? 'warn' : 'danger'}
+                />
+              </div>
+              {command.reason ? <p style={styles.tdMuted}>Reason: {command.reason}</p> : null}
+              <p style={styles.ticketBody}>
+                Asked {relativeTime(command.requestedAt).toLowerCase()}
+                {command.outcomeAt
+                  ? ` · the phone answered ${relativeTime(command.outcomeAt).toLowerCase()}`
+                  : ' · not answered yet, so it has not happened'}
+              </p>
+              {command.outcomeNote ? <p style={styles.ticketReply}>{command.outcomeNote}</p> : null}
+            </div>
+          ))
+        )}
+      </section>
     </div>
   );
 }
@@ -866,6 +1233,37 @@ const styles: Record<string, React.CSSProperties> = {
   },
   actionNote: { margin: 0, fontSize: 13, color: tokens.muted, lineHeight: 1.5 },
   actionMessage: { margin: 0, fontSize: 14, color: tokens.greenDark, fontWeight: 600 },
+  headRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
+  h3: { margin: 0, fontSize: 15, color: tokens.ink },
+  // Said in a sentence rather than left to be worked out from four dead buttons.
+  blocker: {
+    display: 'grid',
+    gap: 6,
+    padding: 14,
+    borderRadius: 12,
+    background: tokens.warnSoft,
+    color: tokens.ink,
+    fontSize: 14,
+    lineHeight: 1.5,
+  },
+  confirmBox: {
+    display: 'grid',
+    gap: 10,
+    justifyItems: 'start',
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    border: `1px solid ${tokens.danger}`,
+    background: tokens.dangerSoft,
+    fontSize: 14,
+    lineHeight: 1.5,
+  },
   ticket: { padding: '12px 0', borderTop: `1px solid ${tokens.line}` },
   ticketBody: { margin: '0 0 6px', fontSize: 14, color: tokens.inkSoft, lineHeight: 1.5 },
   ticketReply: { margin: 0, fontSize: 13, color: tokens.greenDark },
