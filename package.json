@@ -16,6 +16,7 @@
     "dev:mock:proxy": "node scripts/dev-web-proxy.mjs",
     "dev:mock:android": "EXPO_PUBLIC_SUPABASE_URL=http://127.0.0.1:4000 EXPO_PUBLIC_SUPABASE_ANON_KEY=local-dev-anon-key EXPO_PUBLIC_SUPABASE_READS_ENABLED=true expo start",
     "prebuild": "expo prebuild --clean",
+    "build:android": "bash scripts/eas-build.sh",
     "build:dev": "eas build --profile development --platform android",
     "build:preview": "eas build --profile preview --platform android",
     "build:prod": "eas build --profile production --platform android",
