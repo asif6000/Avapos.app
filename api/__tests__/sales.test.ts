@@ -18,6 +18,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ??= 'test-only-not-a-real-key';
 
 const { buildSchedule, SaleInputError } = await import('../dist/sales.js');
 type SaleInput = import('../dist/sales.js').SaleInput;
+type ScheduleEntry = import('../dist/sales.js').ScheduleEntry;
 
 function sale(overrides: Partial<SaleInput> = {}): SaleInput {
   return {
@@ -79,10 +80,10 @@ test('a schedule is never built to collect more than was financed', () => {
 test('the first due date is the date given, and the rest walk forward a month', () => {
   const { entries } = buildSchedule(sale({ installmentCount: 4 }));
   assert.equal(entries[0]?.dueDate, '2026-10-10');
-  assert.deepEqual(entries.map((e) => e.dueDate), [
+  assert.deepEqual(entries.map((entry: ScheduleEntry) => entry.dueDate), [
     '2026-10-10', '2026-11-10', '2026-12-10', '2027-01-10',
   ]);
-  assert.deepEqual(entries.map((e) => e.number), [1, 2, 3, 4]);
+  assert.deepEqual(entries.map((entry: ScheduleEntry) => entry.number), [1, 2, 3, 4]);
 });
 
 test('a due date that is not a real day is refused, not rolled over', () => {
@@ -127,7 +128,9 @@ test('a plan of more taka than there is money is refused', () => {
   })();
 
   assert.ok(error instanceof SaleInputError);
-  assert.equal(error.field, 'installmentCount');
+  // Narrowed by the assertion above; without it `error` is `unknown` and this
+  // would be a compile error rather than a test.
+  assert.equal((error as InstanceType<typeof SaleInputError>).field, 'installmentCount');
 });
 
 test('a single installment is a valid plan', () => {
@@ -141,6 +144,6 @@ test('every installment is UPCOMING, because no money has arrived yet', () => {
   // A sale cannot create a paid installment. If it could, a store could mark a
   // loan settled by selling it.
   const { entries } = buildSchedule(sale());
-  assert.ok(entries.every((e) => e.status === 'UPCOMING'));
-  assert.ok(entries.every((e) => e.amount > 0));
+  assert.ok(entries.every((entry: ScheduleEntry) => entry.status === 'UPCOMING'));
+  assert.ok(entries.every((entry: ScheduleEntry) => entry.amount > 0));
 });

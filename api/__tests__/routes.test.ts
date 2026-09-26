@@ -205,11 +205,26 @@ async function token(claims: Record<string, unknown> = {}, opts: { expiresIn?: s
     .sign(keyPair.privateKey);
 }
 
+/**
+ * Narrow a parsed response body to an object.
+ *
+ * The bodies are typed `unknown` on purpose, so a test that reads one has to say
+ * what it expects to find. `as any` would silence that and let a response of the
+ * wrong shape pass, which is the mistake these tests exist to catch.
+ */
+function asRecord(body: unknown): Record<string, unknown> {
+  assert.ok(typeof body === 'object' && body !== null, 'body was not an object');
+  return body as Record<string, unknown>;
+}
+
 async function get(path: string, auth?: string) {
   const response = await fetch(`${apiBase()}${path}`, {
     headers: auth ? { Authorization: `Bearer ${auth}` } : {},
   });
-  return { status: response.status, body: await response.json().catch(() => null) };
+  // `unknown`, not `any`: every test that reads the body narrows it first, which
+  // is the point. A test suite is where a wrong response shape should be caught.
+  const body: unknown = await response.json().catch(() => null);
+  return { status: response.status, body };
 }
 
 describe('a real ES256 session is accepted', () => {
@@ -218,8 +233,8 @@ describe('a real ES256 session is accepted', () => {
     stub.rows = { profiles: [CUSTOMER] };
     const { status, body } = await get('/', await token());
     assert.equal(status, 200);
-    assert.equal(body.ok, true);
-    assert.equal(body.id, 'CUST-23839');
+    assert.equal(asRecord(body).ok, true);
+    assert.equal(asRecord(body).id, 'CUST-23839');
   });
 
   test('the issuer is checked, so another project’s token is refused', async () => {
@@ -234,7 +249,7 @@ describe('a real ES256 session is accepted', () => {
 
     const { status, body } = await get('/', foreign);
     assert.equal(status, 401);
-    assert.equal(body.code, 'wrong_project');
+    assert.equal(asRecord(body).code, 'wrong_project');
   });
 
   test('an expired token is refused', async () => {
@@ -276,7 +291,11 @@ describe('a real ES256 session is accepted', () => {
       .setExpirationTime('1h')
       .sign(keyPair.privateKey);
 
-    const claims = JSON.parse(Buffer.from(real.split('.')[1], 'base64url').toString());
+    // `!` because a JWT is three dot-separated parts and a token without a
+    // payload segment is not a token at all — `jose` would already have refused it
+    // by the time this line runs.
+    const payload = real.split('.')[1] ?? '';
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString()) as Record<string, unknown>;
     assert.equal(claims.aud, 'authenticated');
     assert.notEqual(claims.aud, issuer);
 
@@ -296,7 +315,7 @@ describe('a real ES256 session is accepted', () => {
 
     const { status, body } = await get('/', anonAudience);
     assert.equal(status, 401);
-    assert.equal(body.code, 'not_authenticated');
+    assert.equal(asRecord(body).code, 'not_authenticated');
   });
 });
 
@@ -307,7 +326,7 @@ describe('a valid session with no customer is its own thing', () => {
     stub.rows = { profiles: [] };
     const { status, body } = await get('/', await token());
     assert.equal(status, 403);
-    assert.equal(body.code, 'customer_not_found');
+    assert.equal(asRecord(body).code, 'customer_not_found');
   });
 });
 
@@ -319,16 +338,18 @@ describe('the dashboard is assembled from the customer’s own rows', () => {
   test('it returns the shape the app already renders', async () => {
     const { status, body } = await get('/dashboard', await token());
     assert.equal(status, 200);
-    assert.equal(body.customer.id, 'CUST-23839');
-    assert.equal(body.customer.fullName, 'Asif Hossain');
-    assert.equal(body.device.id, 'DEV-SAM-A15-098');
-    assert.equal(body.plan.contractId, 'CONTRACT-BD-2026-902');
-    assert.equal(body.plan.paidInstallments, 2);
-    assert.equal(body.plan.remainingAmount, 13500);
-    assert.equal(body.nextInstallment.number, 3);
-    assert.equal(body.deviceStatus.deviceState, 'ACTIVE');
+    const summary = asRecord(body);
+    const plan = asRecord(summary.plan);
+    assert.equal(asRecord(summary.customer).id, 'CUST-23839');
+    assert.equal(asRecord(summary.customer).fullName, 'Asif Hossain');
+    assert.equal(asRecord(summary.device).id, 'DEV-SAM-A15-098');
+    assert.equal(plan.contractId, 'CONTRACT-BD-2026-902');
+    assert.equal(plan.paidInstallments, 2);
+    assert.equal(plan.remainingAmount, 13500);
+    assert.equal(asRecord(summary.nextInstallment).number, 3);
+    assert.equal(asRecord(summary.deviceStatus).deviceState, 'ACTIVE');
     // A computed schedule is labelled as one.
-    assert.equal(body.plan.scheduleSource, 'derived');
+    assert.equal(plan.scheduleSource, 'derived');
   });
 
   test('every read filters on the caller’s own customer key', async () => {
@@ -353,10 +374,11 @@ describe('the dashboard is assembled from the customer’s own rows', () => {
 
     const { status, body } = await get('/dashboard', await token({ sub: 'auth-user-2' }));
     assert.equal(status, 200);
-    assert.equal(body.customer.id, 'CUST-OTHER');
+    const summary = asRecord(body);
+    assert.equal(asRecord(summary.customer).id, 'CUST-OTHER');
     // The contract belongs to CUST-23839, so CUST-OTHER gets no plan at all.
-    assert.equal(body.plan, null);
-    assert.equal(body.device, null);
+    assert.equal(summary.plan, null);
+    assert.equal(summary.device, null);
   });
 });
 
@@ -365,9 +387,10 @@ describe('a customer with no plan or phone is a real state, not an error', () =>
     stub.rows = { profiles: [CUSTOMER], installment_contracts: [], devices: [] };
     const { status, body } = await get('/dashboard', await token());
     assert.equal(status, 200);
-    assert.equal(body.plan, null);
-    assert.equal(body.device, null);
-    assert.equal(body.nextInstallment, null);
+    const summary = asRecord(body);
+    assert.equal(summary.plan, null);
+    assert.equal(summary.device, null);
+    assert.equal(summary.nextInstallment, null);
   });
 });
 
@@ -399,7 +422,7 @@ describe('the service is read-only', () => {
         body: method === 'DELETE' ? undefined : '{}',
       });
       assert.equal(response.status, 405, `${method} ${path} was not refused`);
-      assert.equal((await response.json()).code, 'read_only');
+      assert.equal(asRecord(await response.json()).code, 'read_only');
     }
   });
 });
@@ -412,10 +435,11 @@ describe('list routes keep the envelope the app pages with', () => {
     };
     const { status, body } = await get('/notifications', await token());
     assert.equal(status, 200);
-    assert.equal(body.total, 1);
-    assert.equal(body.page, 1);
-    assert.equal(body.hasMore, false);
-    assert.equal(body.items[0].message, 'There');
+    const page = asRecord(body);
+    assert.equal(page.total, 1);
+    assert.equal(page.page, 1);
+    assert.equal(page.hasMore, false);
+    assert.equal(asRecord((page.items as unknown[])[0]).message, 'There');
   });
 
   test('tickets carry the fields SupportTicket declares', async () => {
@@ -424,7 +448,8 @@ describe('list routes keep the envelope the app pages with', () => {
       support_tickets: [{ id: 't1', customer_key: 'CUST-23839', subject: 'Query', message: 'When?', category: 'PAYMENT', status: 'OPEN', admin_response: null, created_at: '2026-09-25T10:00:00Z' }],
     };
     const { body } = await get('/support/tickets', await token());
-    assert.deepEqual(Object.keys(body.items[0]).sort(), [
+    const items = asRecord(body).items as Record<string, unknown>[];
+    assert.deepEqual(Object.keys(items[0] ?? {}).sort(), [
       'category', 'createdAt', 'id', 'message', 'respondedAt', 'response', 'status', 'subject', 'updatedAt',
     ]);
   });
