@@ -11,6 +11,24 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
   const apiBaseUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://srabontelecom.paymently.io/customer';
 
+  // The EAS project this app builds under. The slug is `srabon-telecom-customer`
+  // and the package is `io.paymently.srabontelecom` — both of which are the
+  // identity EAS will sign the APK with, so a build aimed at any other project
+  // produces a phone app signed for the wrong thing.
+  //
+  // The placeholder is spoken out loud rather than left to be discovered by a
+  // failed upload: `eas init` writes the real id here, and until that has
+  // happened this app has no EAS project and cannot be built.
+  const UNLINKED = '00000000-0000-0000-0000-000000000000';
+  const projectId = process.env.EAS_PROJECT_ID ?? UNLINKED;
+
+  if (projectId === UNLINKED) {
+    console.warn(
+      '\n[eas] projectId is still the placeholder, so this build belongs to no EAS project.\n' +
+        '      Run `npx eas login` then `npx eas init` once, and the real id is written to\n' +
+        '      app.config.ts. A local dev build is unaffected.\n',
+    );
+  }
 
   return {
     ...config,
@@ -114,7 +132,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       apiBaseUrl,
       eas: {
-        projectId: process.env.EAS_PROJECT_ID ?? '00000000-0000-0000-0000-000000000000',
+        projectId,
       },
     },
   } satisfies ExpoConfig;
