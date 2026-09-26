@@ -49,8 +49,8 @@ export function App() {
   };
 
   return (
-    <div style={styles.shell}>
-      <header style={styles.bar}>
+    <div className="shell">
+      <header className="bar" style={styles.bar}>
         <div style={styles.brand}>
           <span style={styles.mark}>Customer</span>
           <span style={styles.brandName}>Admin</span>
@@ -63,7 +63,7 @@ export function App() {
         </div>
       </header>
 
-      <nav style={styles.rail}>
+      <nav className="rail" style={styles.rail}>
         {TABS.map((entry) => (
           <button
             key={entry.id}
@@ -78,7 +78,7 @@ export function App() {
         ))}
       </nav>
 
-      <main style={styles.main}>
+      <main className="main" style={styles.main}>
         {customerId ? (
           <CustomerDetailView id={customerId} onBack={() => setCustomerId(null)} />
         ) : tab === 'dashboard' ? (
@@ -102,35 +102,20 @@ export function App() {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  shell: {
-    minHeight: '100dvh',
-    background: tokens.canvas,
-    display: 'grid',
-    gridTemplateRows: 'auto auto 1fr',
-  },
   centre: {
     minHeight: '100dvh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bar: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    padding: '12px 20px',
-    background: tokens.surface,
-    borderBottom: `1px solid ${tokens.line}`,
-    flexWrap: 'wrap',
-  },
+  bar: { background: tokens.surface, borderBottomColor: tokens.line },
   brand: { display: 'flex', alignItems: 'baseline', gap: 8 },
   mark: { fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase', color: tokens.green, fontWeight: 700 },
   brandName: { fontSize: 18, fontWeight: 800, color: tokens.ink, letterSpacing: -0.3 },
   who: { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' },
   email: { fontSize: 13, color: tokens.muted },
   signOut: {
-    height: 34,
+    height: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: `1px solid ${tokens.line}`,
@@ -140,16 +125,9 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     cursor: 'pointer',
   },
-  rail: {
-    display: 'flex',
-    gap: 6,
-    padding: '10px 16px',
-    overflowX: 'auto',
-    background: tokens.surface,
-    borderBottom: `1px solid ${tokens.line}`,
-  },
+  rail: { background: tokens.surface, borderBottomColor: tokens.line },
   railItem: {
-    height: 34,
+    height: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: `1px solid ${tokens.line}`,
@@ -159,24 +137,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     whiteSpace: 'nowrap',
     cursor: 'pointer',
-  },
-  railActive: {
-    height: 34,
-    padding: '0 14px',
-    borderRadius: 999,
-    border: 0,
-    background: tokens.green,
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: 700,
-    whiteSpace: 'nowrap',
-    cursor: 'pointer',
-  },
-  main: {
-    padding: 20,
-    maxWidth: 1180,
-    width: '100%',
-    margin: '0 auto',
   },
   muted: { color: tokens.muted },
 };

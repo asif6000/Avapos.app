@@ -1,9 +1,19 @@
-/* A reset and a type scale, and nothing else: the panels carry their own styles
-   so a screen is readable as one file. */
+/*
+ * Layout lives here; colour lives in the component styles.
+ *
+ * Two shapes, one markup: a rail on a phone and a sidebar on a desk, and tables
+ * that are tables on a desk and cards in a hand. A table that has to be scrolled
+ * sideways to read a reference number is a table nobody reads.
+ */
 :root {
   color-scheme: light;
   --ink: #131918;
+  --ink-soft: #3f4947;
+  --muted: #6f7977;
+  --line: #e4edea;
+  --surface: #ffffff;
   --canvas: #f6f8f8;
+  --green: #0b6b5b;
 }
 
 * { box-sizing: border-box; }
@@ -19,3 +29,119 @@ body {
 
 button { font: inherit; }
 input, textarea, select { font: inherit; }
+
+/* ---------------------------------------------------------------- the shell */
+
+.shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.rail {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar { display: none; }
+
+.main { padding: 16px; width: 100%; max-width: 1180px; margin: 0 auto; }
+
+/* A desk gets a sidebar and room to breathe; a hand keeps the strip. */
+@media (min-width: 900px) {
+  .shell {
+    grid-template-rows: auto 1fr;
+    grid-template-columns: 216px 1fr;
+  }
+  .bar { grid-column: 1 / -1; }
+  .rail {
+    flex-direction: column;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    overflow-x: visible;
+    padding: 16px 12px;
+    gap: 4px;
+    align-self: start;
+    position: sticky;
+    top: 61px;
+    max-height: calc(100dvh - 61px);
+    overflow-y: auto;
+  }
+  .rail button { width: 100%; justify-content: flex-start; }
+  .main { padding: 24px 28px; }
+}
+
+/* ------------------------------------------------------------------ tables */
+
+.tableWrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; min-width: 520px; }
+
+/*
+ * On a narrow screen a table stops being a grid of columns and becomes a stack of
+ * cards. Every cell carries its own label, so nothing depends on a header row
+ * that is no longer there.
+ */
+@media (max-width: 720px) {
+  .tableWrap { overflow-x: visible; }
+  .table { min-width: 0; display: block; }
+  .table thead { display: none; }
+  .table tbody { display: block; }
+  .table tr {
+    display: block;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 2px 0;
+    margin-bottom: 10px;
+  }
+  .table td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    text-align: right;
+  }
+  .table td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    text-align: left;
+    flex: 0 0 auto;
+  }
+  .table td:last-child { border-bottom: 0; justify-content: flex-end; }
+  .table td:last-child::before { display: none; }
+}
+
+/* --------------------------------------------------------------- controls */
+
+.buttonRow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+@media (max-width: 720px) {
+  /* Everything a thumb has to hit gets the whole width and a real target. */
+  .buttonRow > input,
+  .buttonRow > button { width: 100%; }
+  .buttonRow > button { min-height: 44px; }
+  input, textarea { font-size: 16px; }  /* 16px stops iOS zooming on focus */
+}

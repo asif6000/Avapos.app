@@ -95,6 +95,38 @@ describe('the admin panel holds no credential', () => {
   });
 });
 
+describe('the admin panel is usable in a hand and on a desk', () => {
+  const css = readFileSync(path.join(ADMIN, 'dist/../src/styles.css'), 'utf8');
+  const panels = read('src/screens/panels.tsx');
+
+  it('gives a desk a sidebar and a phone a rail', () => {
+    expect(css).toContain('@media (min-width: 900px)');
+    expect(css).toContain('flex-direction: column');
+    expect(read('src/App.tsx')).toContain('className="rail"');
+  });
+
+  it('turns every table into cards on a narrow screen', () => {
+    // A table that has to be scrolled sideways to read a reference number is a
+    // table nobody reads. The cells carry their own labels so the card version
+    // needs no header row.
+    expect(css).toContain('@media (max-width: 720px)');
+    expect(css).toContain('attr(data-label)');
+    expect(panels).toContain('data-label={label}');
+    expect(css).toContain('overflow-x: visible');
+  });
+
+  it('gives every control a thumb-sized target on a phone', () => {
+    expect(css).toContain('min-height: 44px');
+    // 16px inputs, or iOS zooms when a field is focused and the layout jumps.
+    expect(css).toContain('16px');
+  });
+
+  it('keeps the header and the rail reachable while scrolling', () => {
+    expect(css).toContain('position: sticky');
+    expect(css).toContain('100dvh');
+  });
+});
+
 describe('the admin API', () => {
   const routes = readFileSync(path.join(ROOT, 'backend/routes/admin-api.php'), 'utf8');
   const middleware = readFileSync(

@@ -37,6 +37,29 @@ export function Pill({ label, tone = 'neutral' }: { label: string; tone?: 'ok' |
   );
 }
 
+/**
+ * A table cell that knows what it is.
+ *
+ * On a desk the header row says it; on a phone the header row is hidden and the
+ * table becomes a stack of cards, so the label has to travel with the value —
+ * otherwise the card is a list of numbers with nothing to attach them to.
+ */
+export function Cell({
+  label,
+  muted = false,
+  children,
+}: {
+  label: string;
+  muted?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <td data-label={label} style={muted ? styles.tdMuted : styles.td}>
+      {children}
+    </td>
+  );
+}
+
 export function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
     <div style={styles.tableWrap}>
@@ -100,20 +123,20 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
           <Table head={['Reference', 'Customer', 'Amount', 'Status', 'When']}>
             {data.recentPayments.map((payment) => (
               <tr key={payment.id}>
-                <td style={styles.td}>
+                <Cell label="Reference">
                   <button style={styles.link} onClick={() => onOpen(payment.customerKey)}>
                     {payment.id}
                   </button>
-                </td>
-                <td style={styles.td}>{payment.customerKey}</td>
-                <td style={styles.td}>{money(payment.amount)}</td>
-                <td style={styles.td}>
+                </Cell>
+                <Cell label="Customer">{payment.customerKey}</Cell>
+                <Cell label="Amount">{money(payment.amount)}</Cell>
+                <Cell label="Status">
                   <Pill
                     label={payment.status}
                     tone={payment.status === 'SUCCESS' ? 'ok' : payment.status === 'PENDING' ? 'warn' : 'danger'}
                   />
-                </td>
-                <td style={styles.tdMuted}>{relativeTime(payment.paidAt ?? payment.createdAt)}</td>
+                </Cell>
+                <Cell label="When" muted>{relativeTime(payment.paidAt ?? payment.createdAt)}</Cell>
               </tr>
             ))}
           </Table>
@@ -160,22 +183,22 @@ export function Customers({ onOpen }: { onOpen: (id: string) => void }) {
           <Table head={['Customer', 'Contact', 'Enrolled', '']}>
             {data.items.map((customer) => (
               <tr key={customer.id}>
-                <td style={styles.td}>
+                <Cell label="">
                   <strong>{customer.fullName}</strong>
                   <div style={styles.tdMuted}>{customer.id}</div>
-                </td>
-                <td style={styles.td}>
+                </Cell>
+                <Cell label="">
                   <div>{customer.email}</div>
                   <div style={styles.tdMuted}>{customer.phone}</div>
-                </td>
-                <td style={styles.td}>
+                </Cell>
+                <Cell label="">
                   <Pill label={customer.enrolled ? 'Enrolled' : 'Not enrolled'} tone={customer.enrolled ? 'ok' : 'neutral'} />
-                </td>
-                <td style={styles.td}>
+                </Cell>
+                <Cell label="">
                   <button style={styles.smallButton} onClick={() => onOpen(customer.id)}>
                     Open
                   </button>
-                </td>
+                </Cell>
               </tr>
             ))}
           </Table>
@@ -323,13 +346,13 @@ export function CustomerDetailView({
         <Table head={['#', 'Amount', 'Paid', 'Status', 'Due']}>
           {installments.map((installment) => (
             <tr key={installment.id}>
-              <td style={styles.td}>{installment.number}</td>
-              <td style={styles.td}>{money(installment.amount)}</td>
-              <td style={styles.td}>{money(installment.paidAmount)}</td>
-              <td style={styles.td}>
+              <Cell label="">{installment.number}</Cell>
+              <Cell label="">{money(installment.amount)}</Cell>
+              <Cell label="">{money(installment.paidAmount)}</Cell>
+              <Cell label="">
                 <Pill label={installment.status} tone={installment.status === 'PAID' ? 'ok' : 'warn'} />
-              </td>
-              <td style={styles.tdMuted}>{installment.dueDate ?? '—'}</td>
+              </Cell>
+              <Cell label="" muted>{installment.dueDate ?? '—'}</Cell>
             </tr>
           ))}
         </Table>
@@ -340,22 +363,22 @@ export function CustomerDetailView({
         <Table head={['Reference', 'Amount', 'Status', 'Gateway ref', '']}>
           {payments.map((payment) => (
             <tr key={payment.id}>
-              <td style={styles.td}>{payment.id}</td>
-              <td style={styles.td}>{money(payment.amount)}</td>
-              <td style={styles.td}>
+              <Cell label="">{payment.id}</Cell>
+              <Cell label="">{money(payment.amount)}</Cell>
+              <Cell label="">
                 <Pill
                   label={payment.status}
                   tone={payment.status === 'SUCCESS' ? 'ok' : payment.status === 'PENDING' ? 'warn' : 'danger'}
                 />
-              </td>
-              <td style={styles.tdMuted}>{payment.gatewayReference ?? '—'}</td>
-              <td style={styles.td}>
+              </Cell>
+              <Cell label="" muted>{payment.gatewayReference ?? '—'}</Cell>
+              <Cell label="">
                 {payment.status === 'PENDING' ? (
                   <button style={styles.smallButton} disabled={busy === payment.id} onClick={() => void reverify(payment)}>
                     Ask the gateway
                   </button>
                 ) : null}
-              </td>
+              </Cell>
             </tr>
           ))}
         </Table>
@@ -420,16 +443,16 @@ export function Payments() {
           <Table head={['Reference', 'Customer', 'Installment', 'Amount', 'Status']}>
             {data.items.map((payment) => (
               <tr key={payment.id}>
-                <td style={styles.td}>{payment.id}</td>
-                <td style={styles.td}>{payment.customerKey}</td>
-                <td style={styles.td}>{payment.installmentNumber}</td>
-                <td style={styles.td}>{money(payment.amount)}</td>
-                <td style={styles.td}>
+                <Cell label="">{payment.id}</Cell>
+                <Cell label="">{payment.customerKey}</Cell>
+                <Cell label="">{payment.installmentNumber}</Cell>
+                <Cell label="">{money(payment.amount)}</Cell>
+                <Cell label="">
                   <Pill
                     label={payment.status}
                     tone={payment.status === 'SUCCESS' ? 'ok' : payment.status === 'PENDING' ? 'warn' : 'danger'}
                   />
-                </td>
+                </Cell>
               </tr>
             ))}
           </Table>
@@ -466,12 +489,12 @@ export function Devices() {
           <Table head={['Device', 'Customer', 'State', 'Enrollment', 'Last sync']}>
             {data.items.map((device) => (
               <tr key={device.id}>
-                <td style={styles.td}>
+                <Cell label="">
                   <strong>{device.name}</strong>
                   <div style={styles.tdMuted}>{device.androidVersion}</div>
-                </td>
-                <td style={styles.td}>{device.customerKey}</td>
-                <td style={styles.td}>
+                </Cell>
+                <Cell label="">{device.customerKey}</Cell>
+                <Cell label="">
                   <Pill
                     label={deviceStateLabel(device.state)}
                     tone={
@@ -482,9 +505,9 @@ export function Devices() {
                           : 'warn'
                     }
                   />
-                </td>
-                <td style={styles.tdMuted}>{device.enrollmentStatus}</td>
-                <td style={styles.tdMuted}>{relativeTime(device.lastSyncAt)}</td>
+                </Cell>
+                <Cell label="" muted>{device.enrollmentStatus}</Cell>
+                <Cell label="" muted>{relativeTime(device.lastSyncAt)}</Cell>
               </tr>
             ))}
           </Table>
@@ -624,15 +647,15 @@ export function Notifications({ onOpen }: { onOpen: (id: string) => void }) {
           <Table head={['Customer', 'Title', 'Message', 'Read', '']}>
             {data.items.map((notification) => (
               <tr key={notification.id}>
-                <td style={styles.td}>
+                <Cell label="">
                   <button style={styles.link} onClick={() => onOpen(notification.customerKey)}>
                     {notification.customerKey}
                   </button>
-                </td>
-                <td style={styles.td}>{notification.title}</td>
-                <td style={styles.tdMuted}>{notification.message}</td>
-                <td style={styles.td}>{notification.isRead ? 'Read' : 'New'}</td>
-                <td style={styles.tdMuted}>{relativeTime(notification.createdAt)}</td>
+                </Cell>
+                <Cell label="">{notification.title}</Cell>
+                <Cell label="" muted>{notification.message}</Cell>
+                <Cell label="">{notification.isRead ? 'Read' : 'New'}</Cell>
+                <Cell label="" muted>{relativeTime(notification.createdAt)}</Cell>
               </tr>
             ))}
           </Table>
@@ -659,11 +682,11 @@ export function Audit() {
           <Table head={['When', 'Who', 'Action', 'Subject', 'Reason']}>
             {data.items.map((entry) => (
               <tr key={entry.id}>
-                <td style={styles.tdMuted}>{relativeTime(entry.createdAt)}</td>
-                <td style={styles.td}>{entry.adminEmail}</td>
-                <td style={styles.td}>{entry.action}</td>
-                <td style={styles.td}>{entry.subject}</td>
-                <td style={styles.tdMuted}>{entry.reason ?? '—'}</td>
+                <Cell label="" muted>{relativeTime(entry.createdAt)}</Cell>
+                <Cell label="">{entry.adminEmail}</Cell>
+                <Cell label="">{entry.action}</Cell>
+                <Cell label="">{entry.subject}</Cell>
+                <Cell label="" muted>{entry.reason ?? '—'}</Cell>
               </tr>
             ))}
           </Table>
@@ -733,7 +756,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: tokens.ink,
   },
   smallButton: {
-    height: 34,
+    height: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: `1px solid ${tokens.line}`,
@@ -744,7 +767,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   primarySmall: {
-    height: 38,
+    height: 44,
     padding: '0 16px',
     borderRadius: 999,
     border: 0,
@@ -755,7 +778,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   dangerSmall: {
-    height: 38,
+    height: 44,
     padding: '0 16px',
     borderRadius: 999,
     border: 0,
@@ -766,7 +789,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   filter: {
-    height: 34,
+    height: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: `1px solid ${tokens.line}`,
@@ -777,7 +800,7 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   filterActive: {
-    height: 34,
+    height: 44,
     padding: '0 14px',
     borderRadius: 999,
     border: 0,
