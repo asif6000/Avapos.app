@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
+import path from 'path';
+
 import { ApiClient } from '@/api/client';
 import { createEndpoints } from '@/api/endpoints';
+
+const ROOT = path.resolve(__dirname, '..');
 
 /**
  * Customer data isolation.
@@ -131,5 +136,44 @@ describe('customer data isolation', () => {
     // There is no endpoint that accepts a client-asserted device state.
     const apiKeys = Object.keys(api.device);
     expect(apiKeys).toEqual(['get', 'status', 'enroll', 'sync']);
+  });
+});
+
+/**
+ * The two sessions are each other's blind spot.
+ *
+ * A staff JWT is refused on every customer route and a customer JWT is refused on
+ * every admin route, and the mock the demo runs against has to refuse them the
+ * same way the deployed backend does — a mock that is more forgiving than the
+ * server teaches the wrong lesson, and the wrong lesson here is that a panel
+ * login can read a customer's account.
+ */
+describe('neither session is the other one', () => {
+  const mock = readFileSync(path.join(ROOT, 'mock-server', 'server.mjs'), 'utf8');
+
+  it('refuses a staff session on the customer API, without a second rule', () => {
+    // The backend resolves a customer by `auth_uid` and a staff account has no
+    // such row, so it is refused. The mock refuses it for that same reason rather
+    // than for a second rule, so the two can never drift: one resolution, and a
+    // staff token simply resolves to nothing.
+    const start = mock.indexOf('function requireCustomer');
+    const body = mock.slice(start, start + 900);
+
+    expect(body).toContain('customerForAuthUser(claims.sub)');
+    expect(body).not.toContain('isAdmin');
+    expect(body).toContain("error(response, 401, 'unauthorized', 'Unauthorized request')");
+  });
+
+  it('does not let the session probe answer a staff token', () => {
+    // `GET /customer` is a liveness probe with no customer data in it, and it
+    // used to answer 200 to any token that parsed. A probe is still a door.
+    const start = mock.indexOf("if (path === '/' && method === 'GET')");
+    const branch = mock.slice(start, mock.indexOf("if (path === '", start + 10));
+
+    expect(branch).toContain('requireCustomer(request, response)');
+  });
+
+  it('still refuses a customer session on the admin API', () => {
+    expect(mock).toMatch(/function requireAdmin[\s\S]*?error\(response, 403, 'forbidden'/);
   });
 });

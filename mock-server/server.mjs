@@ -802,16 +802,20 @@ async function handleCustomer(request, response, url) {
   const body = await readBody(request);
 
   if (path === '/' && method === 'GET') {
-    const claims = actorFor(request);
-    if (!claims) return error(response, 401, 'unauthorized', 'Unauthorized request');
-    return json(response, 200, { ok: true });
+    // A staff session is not a customer session. The backend resolves a customer
+    // by `auth_uid` and a staff account has no such row, so it is refused there —
+    // and this probe has to refuse it the same way, or a panel login walks
+    // straight into the customer API. One message either way, so the answer does
+    // not also tell a prober that a token is staff.
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
+    return json(response, 200, { ok: true, id: customer.id });
   }
 
   if (path === '/profile' && method === 'GET') {
-    const claims = actorFor(request);
-    if (!claims) return error(response, 401, 'unauthorized', 'Unauthorized request');
-    const customer = customerForAuthUser(claims.sub);
-    if (!customer) return error(response, 404, 'not_found', 'Not Found');
+    // Same rule as the probe above: one message, whatever the reason.
+    const customer = requireCustomer(request, response);
+    if (!customer) return undefined;
     return json(response, 200, {
       id: customer.id,
       fullName: customer.full_name,

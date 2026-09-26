@@ -99,10 +99,16 @@ describe('the admin panel is usable in a hand and on a desk', () => {
   const css = readFileSync(path.join(ADMIN, 'dist/../src/styles.css'), 'utf8');
   const panels = read('src/screens/panels.tsx');
 
-  it('gives a desk a sidebar and a phone a rail', () => {
+  it('gives a desk a sidebar and a phone a drawer, never both at once', () => {
     expect(css).toContain('@media (min-width: 900px)');
     expect(css).toContain('flex-direction: column');
     expect(read('src/App.tsx')).toContain('className="rail"');
+
+    // The sidebar is the drawer shape's sibling, off below desk width. A menu
+    // drawn twice — a strip under the header *and* behind a button — is two menus
+    // to keep in step, and one of them is always the wrong one.
+    expect(css).toContain('.rail { display: none; }');
+    expect(css).toMatch(/@media \(min-width: 900px\)[\s\S]*?\.rail \{\s*display: flex;/);
   });
 
   it('turns every table into cards on a narrow screen', () => {
@@ -121,9 +127,141 @@ describe('the admin panel is usable in a hand and on a desk', () => {
     expect(css).toContain('16px');
   });
 
-  it('keeps the header and the rail reachable while scrolling', () => {
+  it('keeps the header and the sidebar reachable while scrolling', () => {
     expect(css).toContain('position: sticky');
     expect(css).toContain('100dvh');
+  });
+});
+
+describe('every part of the panel is one tap away', () => {
+  const app = read('src/App.tsx');
+  const panels = read('src/screens/panels.tsx');
+  const css = readFileSync(path.join(ADMIN, 'src/styles.css'), 'utf8');
+
+  it('lists every section in a single navigation, grouped by task', () => {
+    // One list, two shapes. A screen that is only reachable from somewhere inside
+    // another screen is a screen the first person to use it never finds.
+    const ids = [...app.matchAll(/id: '([a-z]+)', label: '([A-Za-z]+)'/g)].map((match) => match[1]);
+
+    expect(ids).toEqual([
+      'dashboard',
+      'customers',
+      'devices',
+      'payments',
+      'tickets',
+      'notifications',
+      'audit',
+    ]);
+    expect(app.match(/id: '(dashboard|customers|devices|payments|tickets|notifications|audit)'/g)).toHaveLength(7);
+
+    // Grouped, because "People" and "Money" are what somebody is doing, and a
+    // flat list of seven names is a list nobody scans.
+    for (const group of ['Overview', 'People', 'Money', 'Work', 'Record']) {
+      expect(app).toContain(`label: '${group}'`);
+    }
+    expect(app).toContain('export const SECTIONS = GROUPS.flatMap');
+
+    // Every section is rendered by the switch, so no nav entry is a dead end.
+    // `audit` is the default arm, so it is checked by its heading instead.
+    for (const id of ids.filter((id) => id !== 'audit')) {
+      expect(app).toContain(`tab === '${id}'`);
+    }
+    for (const title of ['Dashboard', 'Customers', 'Payments', 'Devices', 'Tickets', 'Notifications', 'Audit']) {
+      expect(app).toContain(`<PageHead title="${title}"`);
+    }
+  });
+
+  it('draws the same list twice: a drawer in a hand, a sidebar on a desk', () => {
+    expect(app).toContain('const nav = (inDrawer: boolean)');
+    expect(app).toContain('{nav(false)}');
+    expect(app).toContain('{nav(true)}');
+    expect(app).toContain('className="rail"');
+    expect(app).toContain('className="drawer"');
+  });
+
+  it('opens the drawer on a phone and leaves it out of the way on a desk', () => {
+    // The hamburger is only rendered when there is no drawer open, and it is
+    // gone at desk width, where the sidebar already has everything.
+    expect(app).toContain('window.matchMedia(\'(min-width: 900px)\')');
+    expect(app).toContain('{drawer ? null : (');
+    expect(app).toContain('<MenuButton onClick={() => setDrawer(true)} label="Open menu" />');
+  });
+
+  it('gives the drawer the things a hand needs', () => {
+    // A drawer that is a `<div>` is a drawer a screen reader walks straight past,
+    // and one the page behind can be scrolled out from under.
+    expect(app).toContain('role="dialog"');
+    expect(app).toContain('aria-modal="true"');
+    expect(app).toContain("event.key === 'Escape'");
+    expect(app).toContain("document.body.style.overflow = 'hidden'");
+    // And it must let go of the page when it closes.
+    expect(app).toContain("document.body.style.overflow = previous");
+  });
+
+  it('closes the drawer on the way to a screen, and offers a way out of it', () => {
+    expect(app).toContain('setDrawer(false)');
+    expect(app).toContain('aria-label="Close menu"');
+    // Sign-out is inside the menu too, because a hand is what opened it.
+    expect(app).toContain('className="menuFoot"');
+    expect(css).toContain('.menuFoot {');
+  });
+
+  it('keeps the buttons out of the header, where the screen name is', () => {
+    // The header is a name and nothing else. Every action lives in the menu, so
+    // there is one place to look for it — and the top of a screen is not a place
+    // that changes meaning from one screen to the next.
+    const header = app.slice(app.indexOf('<header className="bar"'), app.indexOf('</header>'));
+
+    expect(header).toContain('Customer');
+    expect(header).not.toMatch(/Sign out/);
+    expect(header).not.toContain('identity.email');
+
+    // Both menu shapes carry the same foot, so signing out is reachable in either.
+    expect(app.match(/className="menuFoot"/g)).toHaveLength(2);
+  });
+
+  it('shows the menu button only where there is no sidebar', () => {
+    // On a desk the sidebar is always there, so a button to open a menu over it
+    // would be a button that opens nothing useful. On a phone it is the only way
+    // in, so it must not be hidden.
+    expect(app).toContain('className="menuOnly"');
+    expect(css).toMatch(/\.menuOnly \{ display: inline-flex; \}/);
+    expect(css).toMatch(/@media \(min-width: 900px\)[\s\S]*?\.menuOnly \{ display: none; \}/);
+  });
+
+  it('says which screen you are on, to a person and to a screen reader', () => {
+    expect(app).toContain("aria-current={active === item.id ? 'page' : undefined}");
+    expect(app).toContain('navItemActive');
+  });
+
+  it('never leaves a table cell without a label', () => {
+    // The phone layout hides the header row and prints each cell's own label, so
+    // an empty one renders as a card of bare values with nothing to attach them
+    // to. This is the check that keeps that from coming back.
+    const labels = [...panels.matchAll(/<Cell label="([^"]*)"/g)].map((match) => match[1] ?? '');
+
+    expect(labels.length).toBeGreaterThan(20);
+    expect(labels.filter((label) => label.trim() === '')).toEqual([]);
+
+    // And no column header may be blank either, or the desk view loses a column.
+    for (const match of panels.matchAll(/head=\{(\[[^\]]*\])\}/g)) {
+      const columns = (match[1] ?? '')
+        .replace(/[[\]'\s]/g, '')
+        .split(',')
+        .map((column) => column.trim());
+      expect(columns.length).toBeGreaterThan(1);
+      expect(columns.filter((column) => column === '')).toEqual([]);
+    }
+  });
+
+  it('shows something honest while waiting, and when there is nothing', () => {
+    // "Loading…" plus a layout jump tells an agent nothing; a skeleton looks like
+    // the rows it is standing in for.
+    expect(panels).toContain('export function Loading');
+    expect(panels).toContain('className="skeleton"');
+    expect(css).toContain('.skeleton');
+    // An empty list is stated, not rendered as a table header over nothing.
+    expect(panels).toContain('export function Empty');
   });
 });
 

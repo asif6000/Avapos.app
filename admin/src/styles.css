@@ -1,9 +1,11 @@
 /*
  * Layout lives here; colour lives in the component styles.
  *
- * Two shapes, one markup: a rail on a phone and a sidebar on a desk, and tables
- * that are tables on a desk and cards in a hand. A table that has to be scrolled
- * sideways to read a reference number is a table nobody reads.
+ * One navigation, two shapes: a drawer in a hand, a sidebar on a desk. A phone
+ * gets exactly one of them — the drawer — because a menu drawn twice, once as a
+ * strip under the header and once behind a button, is two menus to keep in step.
+ * And tables are tables on a desk and cards in a hand: a table that has to be
+ * scrolled sideways to read a reference number is a table nobody reads.
  */
 :root {
   color-scheme: light;
@@ -35,7 +37,7 @@ input, textarea, select { font: inherit; }
 .shell {
   min-height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto 1fr;
 }
 
 .bar {
@@ -52,31 +54,31 @@ input, textarea, select { font: inherit; }
   z-index: 2;
 }
 
-.rail {
-  display: flex;
-  gap: 6px;
-  padding: 10px 16px;
-  overflow-x: auto;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  scrollbar-width: none;
-}
-.rail::-webkit-scrollbar { display: none; }
+.barLeft { display: flex; align-items: center; gap: 8; }
+
+/*
+ * The header carries the name and nothing else. Every action — including signing
+ * out — lives in the menu, so there is one place to look for it and one place
+ * that changes shape with the screen.
+ */
+.menuOnly { display: inline-flex; }
+.rail { display: none; }
 
 .main { padding: 16px; width: 100%; max-width: 1180px; margin: 0 auto; }
 
-/* A desk gets a sidebar and room to breathe; a hand keeps the strip. */
+/* A desk gets the sidebar for good, and no button to summon one. */
 @media (min-width: 900px) {
   .shell {
     grid-template-rows: auto 1fr;
     grid-template-columns: 216px 1fr;
   }
   .bar { grid-column: 1 / -1; }
+  .menuOnly { display: none; }
   .rail {
+    display: flex;
     flex-direction: column;
+    background: var(--surface);
     border-right: 1px solid var(--line);
-    border-bottom: 0;
-    overflow-x: visible;
     padding: 16px 12px;
     gap: 4px;
     align-self: start;
@@ -86,6 +88,8 @@ input, textarea, select { font: inherit; }
     overflow-y: auto;
   }
   .rail button { width: 100%; justify-content: flex-start; }
+  .rail .drawerGroup { margin-top: 0; }
+  .rail .drawerGroup + .drawerGroup { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .main { padding: 24px 28px; }
 }
 
@@ -144,4 +148,159 @@ input, textarea, select { font: inherit; }
   .buttonRow > button { width: 100%; }
   .buttonRow > button { min-height: 44px; }
   input, textarea { font-size: 16px; }  /* 16px stops iOS zooming on focus */
+}
+
+/* ------------------------------------------------------------------ focus */
+
+/* Visible focus, everywhere. A keyboard is a keyboard. */
+:where(a, button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ---------------------------------------------------------------- the menu */
+
+.drawerOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 14, 13, 0.44);
+  border: 0;
+  z-index: 9;
+  animation: fade 140ms ease-out;
+}
+
+.drawer {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(300px, 84vw);
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  z-index: 10;
+  animation: slideIn 160ms ease-out;
+  overflow-y: auto;
+}
+
+.drawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.drawerGroup {
+  display: grid;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.drawerGroupLabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 8px 10px 4px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.navItem:hover { background: var(--canvas); color: var(--ink); }
+
+.navItemActive {
+  background: var(--green);
+  color: #fff;
+  font-weight: 700;
+}
+.navItemActive:hover { background: var(--green); color: #fff; }
+
+.navIcon { flex: 0 0 auto; opacity: 0.9; }
+
+/* The foot of the menu, in whichever shape the menu happens to be. */
+.menuFoot {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+
+@keyframes slideIn { from { transform: translateX(-14px); opacity: 0.4; } to { transform: none; opacity: 1; } }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+
+/* ------------------------------------------------------------ page header */
+
+.pageHead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 2px;
+}
+
+.pageTitle { margin: 0; font-size: 22px; letter-spacing: -0.4px; }
+.pageSub { margin: 2px 0 0; font-size: 13px; color: var(--muted); max-width: 60ch; }
+
+@media (max-width: 720px) {
+  .pageTitle { font-size: 19px; }
+}
+
+/* -------------------------------------------------------------- utilities */
+
+.tnum { font-variant-numeric: tabular-nums; }
+
+.empty {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  text-align: center;
+  padding: 28px 12px;
+  color: var(--muted);
+}
+.empty strong { color: var(--ink); font-size: 15px; }
+
+.skeleton {
+  border-radius: 12px;
+  background: linear-gradient(90deg, #eef3f1 25%, #f7faf9 37%, #eef3f1 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+
+@media (min-width: 900px) {
+  .table thead th {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    z-index: 1;
+  }
 }

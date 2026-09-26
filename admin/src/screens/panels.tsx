@@ -79,8 +79,28 @@ export function Table({ head, children }: { head: string[]; children: ReactNode 
   );
 }
 
-export function Loading() {
-  return <p style={styles.muted}>Loading…</p>;
+/**
+ * A placeholder that looks like the thing it is standing in for: bars where
+ * numbers are, blocks where rows are. The word "Loading…" tells an agent nothing
+ * and makes the page jump when the data arrives.
+ */
+export function Loading({ rows = 4 }: { rows?: number }) {
+  return (
+    <div style={styles.skeletonWrap} aria-busy="true" aria-label="Loading">
+      {Array.from({ length: rows }, (_, index) => (
+        <div key={index} className="skeleton" style={{ height: 46, opacity: 1 - index * 0.12 }} />
+      ))}
+    </div>
+  );
+}
+
+export function Empty({ title, body }: { title: string; body?: string }) {
+  return (
+    <div className="empty">
+      <strong>{title}</strong>
+      {body ? <span>{body}</span> : null}
+    </div>
+  );
 }
 
 export function Failure({ message, onRetry }: { message: string; onRetry?: () => void }) {
@@ -118,7 +138,7 @@ export function Dashboard({ onOpen }: { onOpen: (id: string) => void }) {
       <section style={cardStyle}>
         <h2 style={styles.h2}>Latest payments</h2>
         {data.recentPayments.length === 0 ? (
-          <p style={styles.muted}>No payments yet.</p>
+          <Empty title="No payments yet" body="Nothing has been attempted for a customer." />
         ) : (
           <Table head={['Reference', 'Customer', 'Amount', 'Status', 'When']}>
             {data.recentPayments.map((payment) => (
@@ -180,21 +200,21 @@ export function Customers({ onOpen }: { onOpen: (id: string) => void }) {
           <h2 style={styles.h2}>
             {data.total} customer{data.total === 1 ? '' : 's'}
           </h2>
-          <Table head={['Customer', 'Contact', 'Enrolled', '']}>
+          <Table head={['Customer', 'Contact', 'Enrolled', 'Action']}>
             {data.items.map((customer) => (
               <tr key={customer.id}>
-                <Cell label="">
+                <Cell label="Customer">
                   <strong>{customer.fullName}</strong>
                   <div style={styles.tdMuted}>{customer.id}</div>
                 </Cell>
-                <Cell label="">
+                <Cell label="Contact">
                   <div>{customer.email}</div>
                   <div style={styles.tdMuted}>{customer.phone}</div>
                 </Cell>
-                <Cell label="">
+                <Cell label="Enrolled">
                   <Pill label={customer.enrolled ? 'Enrolled' : 'Not enrolled'} tone={customer.enrolled ? 'ok' : 'neutral'} />
                 </Cell>
-                <Cell label="">
+                <Cell label="Action">
                   <button style={styles.smallButton} onClick={() => onOpen(customer.id)}>
                     Open
                   </button>
@@ -346,13 +366,13 @@ export function CustomerDetailView({
         <Table head={['#', 'Amount', 'Paid', 'Status', 'Due']}>
           {installments.map((installment) => (
             <tr key={installment.id}>
-              <Cell label="">{installment.number}</Cell>
-              <Cell label="">{money(installment.amount)}</Cell>
-              <Cell label="">{money(installment.paidAmount)}</Cell>
-              <Cell label="">
+              <Cell label="#">{installment.number}</Cell>
+              <Cell label="Amount">{money(installment.amount)}</Cell>
+              <Cell label="Paid">{money(installment.paidAmount)}</Cell>
+              <Cell label="Status">
                 <Pill label={installment.status} tone={installment.status === 'PAID' ? 'ok' : 'warn'} />
               </Cell>
-              <Cell label="" muted>{installment.dueDate ?? '—'}</Cell>
+              <Cell label="Due" muted>{installment.dueDate ?? '—'}</Cell>
             </tr>
           ))}
         </Table>
@@ -360,19 +380,19 @@ export function CustomerDetailView({
 
       <section style={cardStyle}>
         <h2 style={styles.h2}>Payments</h2>
-        <Table head={['Reference', 'Amount', 'Status', 'Gateway ref', '']}>
+        <Table head={['Reference', 'Amount', 'Status', 'Gateway ref', 'Action']}>
           {payments.map((payment) => (
             <tr key={payment.id}>
-              <Cell label="">{payment.id}</Cell>
-              <Cell label="">{money(payment.amount)}</Cell>
-              <Cell label="">
+              <Cell label="Reference">{payment.id}</Cell>
+              <Cell label="Amount">{money(payment.amount)}</Cell>
+              <Cell label="Status">
                 <Pill
                   label={payment.status}
                   tone={payment.status === 'SUCCESS' ? 'ok' : payment.status === 'PENDING' ? 'warn' : 'danger'}
                 />
               </Cell>
-              <Cell label="" muted>{payment.gatewayReference ?? '—'}</Cell>
-              <Cell label="">
+              <Cell label="Gateway ref" muted>{payment.gatewayReference ?? '—'}</Cell>
+              <Cell label="Action">
                 {payment.status === 'PENDING' ? (
                   <button style={styles.smallButton} disabled={busy === payment.id} onClick={() => void reverify(payment)}>
                     Ask the gateway
@@ -391,7 +411,7 @@ export function CustomerDetailView({
       <section style={cardStyle}>
         <h2 style={styles.h2}>Tickets</h2>
         {tickets.length === 0 ? (
-          <p style={styles.muted}>None.</p>
+          <Empty title="No tickets" body="Nobody has asked anything yet." />
         ) : (
           tickets.map((ticket) => (
             <div key={ticket.id} style={styles.ticket}>
@@ -443,11 +463,11 @@ export function Payments() {
           <Table head={['Reference', 'Customer', 'Installment', 'Amount', 'Status']}>
             {data.items.map((payment) => (
               <tr key={payment.id}>
-                <Cell label="">{payment.id}</Cell>
-                <Cell label="">{payment.customerKey}</Cell>
-                <Cell label="">{payment.installmentNumber}</Cell>
-                <Cell label="">{money(payment.amount)}</Cell>
-                <Cell label="">
+                <Cell label="Reference">{payment.id}</Cell>
+                <Cell label="Customer">{payment.customerKey}</Cell>
+                <Cell label="Installment">{payment.installmentNumber}</Cell>
+                <Cell label="Amount">{money(payment.amount)}</Cell>
+                <Cell label="Status">
                   <Pill
                     label={payment.status}
                     tone={payment.status === 'SUCCESS' ? 'ok' : payment.status === 'PENDING' ? 'warn' : 'danger'}
@@ -489,12 +509,12 @@ export function Devices() {
           <Table head={['Device', 'Customer', 'State', 'Enrollment', 'Last sync']}>
             {data.items.map((device) => (
               <tr key={device.id}>
-                <Cell label="">
+                <Cell label="Device">
                   <strong>{device.name}</strong>
                   <div style={styles.tdMuted}>{device.androidVersion}</div>
                 </Cell>
-                <Cell label="">{device.customerKey}</Cell>
-                <Cell label="">
+                <Cell label="Customer">{device.customerKey}</Cell>
+                <Cell label="State">
                   <Pill
                     label={deviceStateLabel(device.state)}
                     tone={
@@ -506,8 +526,8 @@ export function Devices() {
                     }
                   />
                 </Cell>
-                <Cell label="" muted>{device.enrollmentStatus}</Cell>
-                <Cell label="" muted>{relativeTime(device.lastSyncAt)}</Cell>
+                <Cell label="Enrollment" muted>{device.enrollmentStatus}</Cell>
+                <Cell label="Last sync" muted>{relativeTime(device.lastSyncAt)}</Cell>
               </tr>
             ))}
           </Table>
@@ -644,18 +664,18 @@ export function Notifications({ onOpen }: { onOpen: (id: string) => void }) {
       {data ? (
         <section style={cardStyle}>
           <h2 style={styles.h2}>Recent notifications</h2>
-          <Table head={['Customer', 'Title', 'Message', 'Read', '']}>
+          <Table head={['Customer', 'Title', 'Message', 'Read', 'When']}>
             {data.items.map((notification) => (
               <tr key={notification.id}>
-                <Cell label="">
+                <Cell label="Customer">
                   <button style={styles.link} onClick={() => onOpen(notification.customerKey)}>
                     {notification.customerKey}
                   </button>
                 </Cell>
-                <Cell label="">{notification.title}</Cell>
-                <Cell label="" muted>{notification.message}</Cell>
-                <Cell label="">{notification.isRead ? 'Read' : 'New'}</Cell>
-                <Cell label="" muted>{relativeTime(notification.createdAt)}</Cell>
+                <Cell label="Title">{notification.title}</Cell>
+                <Cell label="Message" muted>{notification.message}</Cell>
+                <Cell label="Read">{notification.isRead ? 'Read' : 'New'}</Cell>
+                <Cell label="When" muted>{relativeTime(notification.createdAt)}</Cell>
               </tr>
             ))}
           </Table>
@@ -682,11 +702,11 @@ export function Audit() {
           <Table head={['When', 'Who', 'Action', 'Subject', 'Reason']}>
             {data.items.map((entry) => (
               <tr key={entry.id}>
-                <Cell label="" muted>{relativeTime(entry.createdAt)}</Cell>
-                <Cell label="">{entry.adminEmail}</Cell>
-                <Cell label="">{entry.action}</Cell>
-                <Cell label="">{entry.subject}</Cell>
-                <Cell label="" muted>{entry.reason ?? '—'}</Cell>
+                <Cell label="When" muted>{relativeTime(entry.createdAt)}</Cell>
+                <Cell label="Who">{entry.adminEmail}</Cell>
+                <Cell label="Action">{entry.action}</Cell>
+                <Cell label="Subject">{entry.subject}</Cell>
+                <Cell label="Reason" muted>{entry.reason ?? '—'}</Cell>
               </tr>
             ))}
           </Table>
@@ -734,9 +754,17 @@ const styles: Record<string, React.CSSProperties> = {
     borderBottom: `1px solid ${tokens.line}`,
     whiteSpace: 'nowrap',
   },
-  td: { padding: '10px', borderBottom: `1px solid ${tokens.line}`, fontSize: 14, color: tokens.ink, verticalAlign: 'top' },
+  td: {
+    padding: '11px 10px',
+    borderBottom: `1px solid ${tokens.line}`,
+    fontSize: 14,
+    color: tokens.ink,
+    verticalAlign: 'top',
+    fontVariantNumeric: 'tabular-nums',
+  },
   tdMuted: { padding: '10px', borderBottom: `1px solid ${tokens.line}`, fontSize: 13, color: tokens.muted },
   muted: { color: tokens.muted, fontSize: 14 },
+  skeletonWrap: { display: 'grid', gap: 8, padding: '4px 0' },
   failure: {
     display: 'grid',
     gap: 10,
