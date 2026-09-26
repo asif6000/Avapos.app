@@ -1,5 +1,7 @@
 import { MD3DarkTheme, MD3LightTheme, configureFonts, type MD3Theme } from 'react-native-paper';
 
+import brand from './brand.json';
+
 /**
  * One blue, used everywhere.
  *
@@ -8,10 +10,14 @@ import { MD3DarkTheme, MD3LightTheme, configureFonts, type MD3Theme } from 'reac
  * "paid", amber for "due" and red for "overdue". A screen of mixed brand colours
  * reads as a shop window; one hue with three state colours reads as a bank
  * statement, which is what this is.
+ *
+ * The three values `brand` owns are shared with `app.config.ts` — see the note
+ * there — so the splash screen, the adaptive icon and the in-app header cannot
+ * end up different colours.
  */
 export const palette = {
-  primary: '#1D4ED8',
-  primaryDark: '#1739A6',
+  primary: brand.primary,
+  primaryDark: brand.primaryDark,
   primarySoft: '#E4EDFF',
   accent: '#0EA5E9',
   success: '#15803D',
@@ -20,10 +26,10 @@ export const palette = {
   dangerSoft: '#FDE7E6',
   warning: '#B45309',
   warningSoft: '#FDF0DC',
-  info: '#1D4ED8',
+  info: brand.primary,
   infoSoft: '#E4EDFF',
   /** Page background: cool, not grey, so the white cards sit on it. */
-  surfaceLight: '#F1F5FB',
+  surfaceLight: brand.surface,
   surfaceDark: '#0A1220',
 } as const;
 

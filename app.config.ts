@@ -1,5 +1,13 @@
 import type { ExpoConfig, ConfigContext } from 'expo/config';
 
+// JSON, and a relative path, on purpose. This file is evaluated by Node during
+// `eas build`, outside React Native, so it cannot import a `.ts` module — Expo
+// transpiles `app.config.ts` on its own and the relative `.ts` it names is not
+// there to be required. A `.json` file is readable from both sides, which is
+// what makes it impossible for the splash screen and the in-app header to be
+// different colours. See `src/theme/theme.ts` for what the palette does with it.
+import brand from './src/theme/brand.json';
+
 /**
  * Public (non-secret) build-time configuration.
  *
@@ -40,7 +48,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'automatic',
-    primaryColor: '#0B6B5B',
+    primaryColor: brand.primary,
     assetBundlePatterns: ['**/*'],
     ios: {
       supportsTablet: true,
@@ -48,9 +56,24 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       package: 'io.paymently.srabontelecom',
+      /**
+       * Bumped for **every** build, by hand.
+       *
+       * `eas.json` sets `appVersionSource: "local"`, so EAS will not invent one:
+       * with no value here every build since the project was created is
+       * `appBuildVersion 1`, which was the case for both `1b429c11` and
+       * `fe150752`. Android will still accept a same-versionCode install, so this
+       * is not what broke the last install — but it makes two APKs
+       * indistinguishable, and it means an older APK can never be installed over
+       * a newer one (`INSTALL_FAILED_VERSION_DOWNGRADE`), which is the same
+       * "app not installed" wall with the same fix: uninstall first.
+       *
+       * Raise it by one for each build you push.
+       */
+      versionCode: 2,
       predictiveBackGestureEnabled: false,
       adaptiveIcon: {
-        backgroundColor: '#0B6B5B',
+        backgroundColor: brand.surface,
         foregroundImage: './assets/android-icon-foreground.png',
         backgroundImage: './assets/android-icon-background.png',
         monochromeImage: './assets/android-icon-monochrome.png',
@@ -104,7 +127,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
         {
           image: './assets/splash-icon.png',
           resizeMode: 'contain',
-          backgroundColor: '#0B6B5B',
+          backgroundColor: brand.surface,
         },
       ],
       'expo-secure-store',
@@ -114,7 +137,7 @@ const config = ({ config }: ConfigContext): ExpoConfig => {
         'expo-notifications',
         {
           icon: './assets/android-icon-foreground.png',
-          color: '#0B6B5B',
+          color: brand.primary,
           defaultChannel: 'customer-alerts',
         },
       ],

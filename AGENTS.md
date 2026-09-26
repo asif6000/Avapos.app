@@ -94,6 +94,43 @@ an explicit stand-in for a verified gateway callback.
 `npm run prebuild` regenerates the native project. Production builds go through
 EAS (`eas.json` has `development`, `preview`, `production` profiles).
 
+### "App not installed" — read this before blaming the build
+
+A phone that refuses an APK with *"App not installed as package appears to be
+invalid"* is almost never a broken build. On a Samsung that message is the
+installer's wording for several different `PackageManager` errors, and it is worth
+two minutes to tell them apart, because the fix is completely different for each:
+
+| Cause | How to tell | Fix |
+| --- | --- | --- |
+| **Signed by a different key** — the cause almost every time | A copy of `io.paymently.srabontelecom` is already on the phone | **Uninstall the old app first.** Settings → Apps → Customer → Uninstall, then install again |
+| Download is truncated | The file is smaller than EAS reports | Re-download; compare against `content-length` from the artifact URL |
+| Wrong ABI for the device | `adb install` says `NO_MATCHING_ABIS` | EAS APKs are universal; only a hand-built APK is not |
+| APK is older than what is installed | `adb install` says `VERSION_DOWNGRADE` | Uninstall, or raise `android.versionCode` |
+
+The one to check first is the first one, because two different keys for one
+package is easy to end up with here: `npm run android` (`expo run:android`) signs
+with the **local debug keystore** in `~/.android/debug.keystore`, while every EAS
+profile signs with the **project's** managed release keystore. Installing the EAS
+APK over a locally built one therefore always fails, and always will — no
+`versionCode` bump, rebuild or cache clear changes that, because the certificates
+genuinely differ. Android's rule is that an update must be signed by the same key
+as what it replaces.
+
+Two ways to tell the signatures apart without a device: `eas build:view <id>
+--json` gives the build that produced an APK, and the debug keystore's own
+fingerprint is printed once by `keytool -list -v -keystore
+~/.android/debug.keystore -storepass android -alias androiddebugkey`.
+
+`android.versionCode` in `app.config.ts` is bumped by hand for every build —
+`eas.json` sets `appVersionSource: "local"`, so EAS never invents one and an
+absent value is a silent `1` for every build the project has ever made.
+
+The colours the customer sees before the app opens — splash, adaptive icon,
+notification LED — are set in `app.config.ts` from `src/theme/brand.json`, the
+same file the in-app theme reads. `__tests__/brandConfig.test.ts` fails if the two
+drift apart.
+
 ## Environment
 
 | Variable | Required | Purpose |
