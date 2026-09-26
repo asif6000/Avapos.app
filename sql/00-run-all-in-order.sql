@@ -1,21 +1,19 @@
 -- ============================================================================
 -- 00-run-all-in-order.sql
 --
--- ONE PASTE. Replaces running 01…06 by hand, in the right order, in the
+-- ONE PASTE. Replaces running 01…07 by hand, in the right order, in the
 -- Supabase SQL Editor (Dashboard -> SQL Editor -> New query -> paste -> Run).
 --
 -- Generated from the individual scripts, which remain the source of truth and
 -- are not edited by this file. Order matters and is not alphabetical:
 --
---   01 stop-the-bleed      revoke anon access      MUST BE FIRST
---   02 add-auth-link       profiles.auth_uid       after 01, before 03
---   03 owner-policies      RLS keyed on auth.uid() after 02
---   04 link-demo-customer  the customer row + link after 01
---   05 device-commands     the commands table      after 01
---   06 device-report       the device report table after 01
---
--- SAFE TO RUN TWICE. Every statement in every script is `if not exists`,
--- `on conflict`, `if exists`, or otherwise conditional.
+--   07 owner-columns        the owner columns 03 filters on  MUST BE BEFORE 01
+--   01 stop-the-bleed       revoke anon access      after 07
+--   02 add-auth-link        profiles.auth_uid       after 01, before 03
+--   03 owner-policies       RLS keyed on auth.uid() after 02
+--   04 link-demo-customer   the customer row + link after 01
+--   05 device-commands      the commands table      after 01
+--   06 device-report        the device report table after 01
 --
 -- ONE PRECONDITION. 01…05 all create what they need. 06 does not: it only does
 --   `alter table public.devices …`, so it needs a `devices` table to already
@@ -52,6 +50,178 @@
 
 
 
+
+
+
+-- ###########################################################################
+-- BEGIN 07-owner-columns.sql
+-- ###########################################################################
+
+
+-- ============================================================================
+-- 07-owner-columns.sql
+--
+-- Run in the Supabase SQL Editor, AFTER 04-link-demo-customer.sql and BEFORE
+-- 01-stop-the-bleed.sql.
+--
+-- HOW THIS RELATES TO 02-add-auth-link.sql
+--
+-- 02 is the canonical file for this job, and it is not superseded by this one.
+-- Read 02 first. What changed is that 02 has now also been given the
+-- `installment_contracts` column, so after that edit the two files overlap
+-- completely on schema and differ only in the backfill:
+--
+--   02  adds the owner columns, creates the indexes, backfills `profiles.auth_uid`
+--       from `auth.users.phone`, and leaves its own step 4 *commented out* with
+--       the note "ADJUST the join".
+--   07  the backfill that 02 declines to guess, for this schema.
+--
+-- Both are safe to run, in any order, and both are safe to run twice.
+--
+-- WHY THE BACKFILL IS A SEPARATE FILE
+--
+-- 02's commented-out step assumes a row's own key contains its owner's id
+-- (`d.id like p.id || '%'`). That is false here. Measured:
+--
+--   devices.id                 DEV-SAM-A15-098      — contains no CUST- id
+--   installment_contracts.id   CONTRACT-BD-2026-902 — contains no CUST- id
+--
+-- So uncommenting it would silently match nothing and leave every row unowned,
+-- and an unowned row matches no RLS policy — which presents to the customer as
+-- an empty account rather than as an error. The claim has to be stated, and the
+-- one real relationship in this part of the schema is `devices.contract_id`.
+--
+-- WHY 03-owner-policies.sql COULD NOT RUN BEFORE THIS
+--
+-- 03 filters every customer table on `customer_key`. Measured on the live
+-- project before this file existed:
+--
+--   profiles.auth_uid           exists   (added by 04)
+--   payments.customer_key       exists   (added by 04)
+--   devices.customer_key        DOES NOT EXIST
+--   notifications.customer_key  DOES NOT EXIST
+--   support_tickets.customer_key DOES NOT EXIST
+--
+-- So 03 aborts on the first missing column with
+--
+--   ERROR: column "customer_key" does not exist
+--
+-- and an aborted script leaves RLS *off*. The publishable key, which ships
+-- inside the app bundle and is therefore public, currently reads every customer
+-- table in this project:
+--
+--   profiles / payments / devices / installment_contracts /
+--   notifications / support_tickets      -> 200, rows returned
+--
+-- Running 01 alone does not fix that either: it enables RLS and revokes from
+-- `anon` *and* `authenticated`, so with no policy creatable a signed-in customer
+-- loses their own account instead of regaining it.
+--
+-- WHAT THIS FILE DOES NOT DO
+--
+-- It does not enable RLS and it does not create a policy. That is 01 and 03, and
+-- they are not to be skipped. It does not create a customer row, and it does not
+-- mint one per signup: a customer record is created by the store when the phone
+-- is sold, never by a handset that can type an address.
+--
+-- SAFE TO RUN TWICE. Every statement is `if not exists` or conditional, and the
+-- only rows it writes are the owner column on rows this project already has.
+-- ============================================================================
+
+
+-- ---------------------------------------------------------------------------
+-- 1. The owner column, on every table a policy filters on.
+--
+--    `customer_key`, not `customer_id`, because that is the name 03 queries. It
+--    holds `profiles.id` — a readable string such as `CUST-23839`, not a uuid.
+--
+--    02 does this too. Both are `if not exists`, so running either or both is
+--    harmless — and running this file alone is the shorter path on a project
+--    where 02 was never applied, which is the state this one was written for.
+--
+--    Nullable. A row nobody has claimed stays NULL, and a NULL owner matches no
+--    policy: unowned rows are invisible to customers rather than visible to all.
+-- ---------------------------------------------------------------------------
+alter table public.devices          add column if not exists customer_key text;
+alter table public.notifications   add column if not exists customer_key text;
+alter table public.support_tickets add column if not exists customer_key text;
+alter table public.installment_contracts add column if not exists customer_key text;
+
+
+-- ---------------------------------------------------------------------------
+-- 2. The demo device and its contract.
+--
+--    There is no column anywhere in this project that links a customer to a
+--    device. Measured: `devices` has `contract_id` and nothing that names a
+--    customer; `installment_contracts` has no customer column at all. So the
+--    claim below cannot be derived — it has to be stated.
+--
+--    That is the same reasoning 04 uses for the demo customer row: this is a demo
+--    project with one seeded handset sold on one contract, and the ids are the
+--    ones already in the database (`DEV-SAM-A15-098` -> `CONTRACT-BD-2026-902`).
+--    In production the store writes `customer_key` at the moment of sale, when it
+--    knows who bought the phone; it is not something a customer or a handset may
+--    do for themselves.
+-- ---------------------------------------------------------------------------
+update public.devices
+   set customer_key = 'CUST-23839'
+ where customer_key is null
+   and id = 'DEV-SAM-A15-098';
+
+
+-- ---------------------------------------------------------------------------
+-- 3. The contract, from the device that names it.
+--
+--    `devices.contract_id` is the one real relationship in this part of the
+--    schema, so the contract inherits the owner of the device sold on it. This
+--    is a join, not a guess: no row is written whose device has no owner.
+-- ---------------------------------------------------------------------------
+update public.installment_contracts c
+   set customer_key = d.customer_key
+  from public.devices d
+ where c.customer_key is null
+   and d.contract_id = c.id
+   and d.customer_key is not null;
+
+
+-- ---------------------------------------------------------------------------
+-- 4. Report. This is the whole check.
+--
+--    Every table that 03 writes a policy for must show a non-null `customer_key`
+--    on at least one row, or that policy matches nothing and a signed-in customer
+--    will see an empty account rather than their own.
+--
+--    `profiles` is checked by 04's own report. What must be true here is:
+--
+--      devices               CUST-23839
+--      installment_contracts CUST-23839
+--
+--    `notifications` and `support_tickets` may legitimately be empty — an account
+--    with no tickets and no notifications is a real account, not a broken one.
+--    A count of 0 there is correct; a missing column is not, and step 1 has
+--    already made that impossible.
+-- ---------------------------------------------------------------------------
+select 'devices'                as table_name, count(*) as rows, count(customer_key) as owned from public.devices
+union all
+select 'installment_contracts',  count(*),        count(customer_key)        from public.installment_contracts
+union all
+select 'notifications',         count(*),        count(customer_key)        from public.notifications
+union all
+select 'support_tickets',       count(*),        count(customer_key)        from public.support_tickets
+ order by table_name;
+
+-- Then, and only then, run:
+--
+--   01-stop-the-bleed.sql
+--   03-owner-policies.sql
+--   npm run verify:rls
+--
+-- `--\i 01` must also list `installment_contracts`; see the note in that file's
+-- header. Without it the table holding the money stays readable by the public key.
+
+-- ###########################################################################
+-- END 07-owner-columns.sql
+-- ###########################################################################
 
 -- ###########################################################################
 -- BEGIN 01-stop-the-bleed.sql
@@ -91,12 +261,16 @@ alter table public.devices         enable row level security;
 alter table public.payments        enable row level security;
 alter table public.notifications   enable row level security;
 alter table public.support_tickets enable row level security;
+-- The contract: this is where the money is. It was missing from every policy and
+-- every grant in this project, and the publishable key read it until 07 was run.
+alter table public.installment_contracts enable row level security;
 
 alter table public.profiles        force row level security;
 alter table public.devices         force row level security;
 alter table public.payments        force row level security;
 alter table public.notifications   force row level security;
 alter table public.support_tickets force row level security;
+alter table public.installment_contracts force row level security;
 
 
 -- 2. Remove the default grants. Supabase grants anon and authenticated broad
@@ -107,12 +281,14 @@ revoke all on public.devices         from anon;
 revoke all on public.payments        from anon;
 revoke all on public.notifications   from anon;
 revoke all on public.support_tickets from anon;
+revoke all on public.installment_contracts from anon;
 
 revoke all on public.profiles        from authenticated;
 revoke all on public.devices         from authenticated;
 revoke all on public.payments        from authenticated;
 revoke all on public.notifications   from authenticated;
 revoke all on public.support_tickets from authenticated;
+revoke all on public.installment_contracts from authenticated;
 
 
 -- 3. Re-grant only the verbs the app may ever perform, as a floor. The RLS
@@ -122,6 +298,7 @@ grant select on public.devices         to authenticated;
 grant select on public.payments        to authenticated;
 grant select on public.notifications   to authenticated;
 grant select on public.support_tickets to authenticated;
+grant select on public.installment_contracts to authenticated;
 
 -- Customers may open a ticket and mark a notification read. Nothing else.
 grant insert on public.support_tickets to authenticated;
@@ -145,11 +322,11 @@ select
   (select count(*) from public.profiles)        as profiles_visible,
   (select count(*) from public.support_tickets) as tickets_visible;
 
+select count(*) as contracts_visible from public.installment_contracts;
 
 -- ###########################################################################
 -- END 01-stop-the-bleed.sql
 -- ###########################################################################
-
 
 -- ###########################################################################
 -- BEGIN 02-add-auth-link.sql
@@ -213,6 +390,14 @@ alter table public.notifications
 alter table public.support_tickets
   add column if not exists customer_key text;
 
+-- The contract, and the only table in this schema that holds the money:
+-- `total_price`, `paid_amount`, `next_due_amount`. It was named by no migration
+-- and no policy in this project, so the publishable key — which ships inside the
+-- app bundle and is therefore public — could read a customer's balance. Measured
+-- on 2026-09-26: 200, with the row returned.
+alter table public.installment_contracts
+  add column if not exists customer_key text;
+
 
 -- ---------------------------------------------------------------------------
 -- 2. Help the backfill. The keys look like CUST-23839, so a text prefix match
@@ -228,6 +413,8 @@ create index if not exists notifications_customer_key_idx
   on public.notifications (customer_key);
 create index if not exists support_tickets_customer_key_idx
   on public.support_tickets (customer_key);
+create index if not exists installment_contracts_customer_key_idx
+  on public.installment_contracts (customer_key);
 
 
 -- ---------------------------------------------------------------------------
@@ -277,11 +464,9 @@ union all select 'notifications',   count(*) from public.notifications   where c
 union all select 'support_tickets', count(*) from public.support_tickets where customer_key is null
 union all select 'profiles',        count(*) from public.profiles        where auth_uid is null;
 
-
 -- ###########################################################################
 -- END 02-add-auth-link.sql
 -- ###########################################################################
-
 
 -- ###########################################################################
 -- BEGIN 03-owner-policies.sql
@@ -331,6 +516,24 @@ create policy "profiles_update_own" on public.profiles
 -- ---------------------------------------------------------------------------
 drop policy if exists "devices_select_own" on public.devices;
 create policy "devices_select_own" on public.devices
+  for select to authenticated
+  using (customer_key = (select p.id from public.profiles p where p.auth_uid = auth.uid()));
+
+
+-- ---------------------------------------------------------------------------
+-- installment_contracts: read-only, and the table that actually holds the money.
+--
+-- It was in no policy in this project at all, which meant the publishable key —
+-- which ships inside the app bundle, and is therefore public — could read a
+-- customer's `total_price`, `paid_amount` and `next_due_date`. Measured: 200,
+-- with the row returned.
+--
+-- `select` only, and the same rule as every other table here: one customer, one
+-- row. Nothing on a client may write it. A phone that can write `paid_amount`
+-- can mark its own loan settled.
+-- ---------------------------------------------------------------------------
+drop policy if exists "installment_contracts_select_own" on public.installment_contracts;
+create policy "installment_contracts_select_own" on public.installment_contracts
   for select to authenticated
   using (customer_key = (select p.id from public.profiles p where p.auth_uid = auth.uid()));
 
@@ -394,11 +597,9 @@ create policy "support_tickets_insert_own" on public.support_tickets
 -- Only once all three pass, set EXPO_PUBLIC_SUPABASE_READS_ENABLED=true.
 -- ============================================================================
 
-
 -- ###########################################################################
 -- END 03-owner-policies.sql
 -- ###########################################################################
-
 
 -- ###########################################################################
 -- BEGIN 04-link-demo-customer.sql
@@ -549,11 +750,9 @@ select p.id                as profile_id,
 --   curl -H "Authorization: Bearer <access token>" \
 --        https://srabontelecom.paymently.io/customer
 
-
 -- ###########################################################################
 -- END 04-link-demo-customer.sql
 -- ###########################################################################
-
 
 -- ###########################################################################
 -- BEGIN 05-device-commands.sql
@@ -731,11 +930,9 @@ select 'device_locations',
 -- Expected: `[]`, `[]`, and an empty result. The insert must fail: if it
 -- succeeds, a phone has just been handed the ability to confirm its own lock.
 
-
 -- ###########################################################################
 -- END 05-device-commands.sql
 -- ###########################################################################
-
 
 -- ###########################################################################
 -- BEGIN 06-device-report.sql
@@ -849,34 +1046,6 @@ select id,
 --   select source, reported_at, reported_by, android_version
 --     from public.devices where android_id is not null;
 
-
 -- ###########################################################################
 -- END 06-device-report.sql
 -- ###########################################################################
-
-
--- ============================================================================
--- VERIFY. Run as the last statement of the paste.
---
--- `linked_auth_uid` MUST be a uuid. If it is NULL the session still resolves to
--- no customer and every /customer call is still a 401 — the scripts ran, but
--- no auth user's email matched a profile's email.
--- ============================================================================
-select p.id                                          as profile_id,
-       p.email                                       as profile_email,
-       p.auth_uid                                    as linked_auth_uid,
-       u.email                                       as auth_user_email,
-       (select count(*) from public.payments pay
-         where pay.customer_key = p.id)              as payments,
-       (select count(*) from public.device_commands) as device_commands_table_rows
-  from public.profiles p
-  left join auth.users u on u.id = p.auth_uid
- order by p.id;
-
--- Expected: CUST-23839 | asifghe78@gmail.com | <a uuid> | asifghe78@gmail.com | 3
---
--- Then this must be 200 (was 401):
---
---   curl -H "Authorization: Bearer <access token>" \
---        https://srabontelecom.paymently.io/customer
--- ============================================================================

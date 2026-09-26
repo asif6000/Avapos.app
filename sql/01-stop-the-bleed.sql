@@ -31,12 +31,16 @@ alter table public.devices         enable row level security;
 alter table public.payments        enable row level security;
 alter table public.notifications   enable row level security;
 alter table public.support_tickets enable row level security;
+-- The contract: this is where the money is. It was missing from every policy and
+-- every grant in this project, and the publishable key read it until 07 was run.
+alter table public.installment_contracts enable row level security;
 
 alter table public.profiles        force row level security;
 alter table public.devices         force row level security;
 alter table public.payments        force row level security;
 alter table public.notifications   force row level security;
 alter table public.support_tickets force row level security;
+alter table public.installment_contracts force row level security;
 
 
 -- 2. Remove the default grants. Supabase grants anon and authenticated broad
@@ -47,12 +51,14 @@ revoke all on public.devices         from anon;
 revoke all on public.payments        from anon;
 revoke all on public.notifications   from anon;
 revoke all on public.support_tickets from anon;
+revoke all on public.installment_contracts from anon;
 
 revoke all on public.profiles        from authenticated;
 revoke all on public.devices         from authenticated;
 revoke all on public.payments        from authenticated;
 revoke all on public.notifications   from authenticated;
 revoke all on public.support_tickets from authenticated;
+revoke all on public.installment_contracts from authenticated;
 
 
 -- 3. Re-grant only the verbs the app may ever perform, as a floor. The RLS
@@ -62,6 +68,7 @@ grant select on public.devices         to authenticated;
 grant select on public.payments        to authenticated;
 grant select on public.notifications   to authenticated;
 grant select on public.support_tickets to authenticated;
+grant select on public.installment_contracts to authenticated;
 
 -- Customers may open a ticket and mark a notification read. Nothing else.
 grant insert on public.support_tickets to authenticated;
@@ -84,3 +91,5 @@ select
   (select count(*) from public.payments)        as payments_visible,
   (select count(*) from public.profiles)        as profiles_visible,
   (select count(*) from public.support_tickets) as tickets_visible;
+
+select count(*) as contracts_visible from public.installment_contracts;

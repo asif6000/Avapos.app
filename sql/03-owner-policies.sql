@@ -46,6 +46,24 @@ create policy "devices_select_own" on public.devices
 
 
 -- ---------------------------------------------------------------------------
+-- installment_contracts: read-only, and the table that actually holds the money.
+--
+-- It was in no policy in this project at all, which meant the publishable key —
+-- which ships inside the app bundle, and is therefore public — could read a
+-- customer's `total_price`, `paid_amount` and `next_due_date`. Measured: 200,
+-- with the row returned.
+--
+-- `select` only, and the same rule as every other table here: one customer, one
+-- row. Nothing on a client may write it. A phone that can write `paid_amount`
+-- can mark its own loan settled.
+-- ---------------------------------------------------------------------------
+drop policy if exists "installment_contracts_select_own" on public.installment_contracts;
+create policy "installment_contracts_select_own" on public.installment_contracts
+  for select to authenticated
+  using (customer_key = (select p.id from public.profiles p where p.auth_uid = auth.uid()));
+
+
+-- ---------------------------------------------------------------------------
 -- payments: read-only. Creating an order, verifying the gateway callback and
 -- marking SUCCESS are backend-only.
 -- ---------------------------------------------------------------------------

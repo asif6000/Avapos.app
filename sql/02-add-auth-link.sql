@@ -55,6 +55,14 @@ alter table public.notifications
 alter table public.support_tickets
   add column if not exists customer_key text;
 
+-- The contract, and the only table in this schema that holds the money:
+-- `total_price`, `paid_amount`, `next_due_amount`. It was named by no migration
+-- and no policy in this project, so the publishable key — which ships inside the
+-- app bundle and is therefore public — could read a customer's balance. Measured
+-- on 2026-09-26: 200, with the row returned.
+alter table public.installment_contracts
+  add column if not exists customer_key text;
+
 
 -- ---------------------------------------------------------------------------
 -- 2. Help the backfill. The keys look like CUST-23839, so a text prefix match
@@ -70,6 +78,8 @@ create index if not exists notifications_customer_key_idx
   on public.notifications (customer_key);
 create index if not exists support_tickets_customer_key_idx
   on public.support_tickets (customer_key);
+create index if not exists installment_contracts_customer_key_idx
+  on public.installment_contracts (customer_key);
 
 
 -- ---------------------------------------------------------------------------
